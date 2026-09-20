@@ -1,8 +1,13 @@
-# Architecture v1
+# TeamFinder — Architecture v1
+
+Статус: v1 (для первого чекпоинта)  
+Владелец документа: Участник 1 (Team Lead / Backend / DevOps)  
+Reviewer: Участник 2 (PM / System Analyst)  
+Связанные документы: `business-requirements.md`, `use-cases.md`, `erd-v1.md`, `api-contracts-v1.md`
+
+---
 
 ## Общая схема
-
-![Architecture v1](architecture-v1.png)
 
 Исходник схемы для редактирования: [architecture-v1.excalidraw](architecture-v1.excalidraw).
 
@@ -118,12 +123,12 @@ PostgreSQL рассматривается как рабочий вариант �
 
 Пример прохождения запроса через систему:
 
-Пользователь  
-→ Frontend  
-→ HTTP / REST / JSON  
-→ Controllers / API  
-→ Services / бизнес-логика  
-→ Entity Framework Core  
-→ PostgreSQL  
-→ ответ возвращается через backend во Frontend  
+Пользователь\
+→ Frontend\
+→ HTTP / REST / JSON\
+→ Controllers / API\
+→ Services / бизнес-логика\
+→ Entity Framework Core\
+→ PostgreSQL\
+→ ответ возвращается через backend во Frontend\
 → пользователь получает результат.

@@ -1,2158 +1,1119 @@
-\# API Contracts v1
+# API Contracts v1
 
+**Статус:** v1 (для первого чекпоинта)  
+**Владелец документа:** Участник 1 (Team Lead / Backend / DevOps)  
+**Reviewer:** Участник 2 (PM / System Analyst)
 
+**Связанные документы:**
+- `architecture-v1.md`
+- `use-cases.md`
+- `ui-design.md`
 
-\*\*Статус:\*\* v1 (для первого чекпоинта)
+---
 
+## 1. Назначение
 
+API Contracts v1 фиксирует соглашение между frontend и backend TeamFinder.
 
-\*\*Владелец документа:\*\* Участник 1 (Team Lead / Backend / DevOps)
+Документ определяет:
 
+- HTTP-методы и URL endpoint'ов;
+- входные данные запросов;
+- форматы успешных ответов;
+- основные HTTP-коды ошибок;
+- требования к авторизации;
+- бизнес-правила, влияющие на поведение API.
 
+Контракты описывают внешний интерфейс backend и не являются описанием его внутренней реализации.
 
-\*\*Reviewer:\*\* Участник 2 (PM / System Analyst)
+---
 
+## 2. Общие соглашения
 
+### 2.1. Базовый префикс
 
-\*\*Связанные документы:\*\*
-
-\- `architecture-v1.md`
-
-\- `use-cases.md`
-
-\- `ui-design.md`
-
-
-
-\---
-
-
-
-\## 1. Назначение
-
-
-
-API Contracts v1 определяет соглашение между frontend и backend TeamFinder.
-
-
-
-Документ фиксирует:
-
-
-
-\- HTTP-методы и URL endpoint'ов;
-
-\- входные данные запросов;
-
-\- форматы успешных ответов;
-
-\- основные HTTP-коды и ошибки;
-
-\- ключевые бизнес-ограничения, влияющие на API.
-
-
-
-Контракты описывают интерфейс взаимодействия компонентов системы и не являются реализацией backend.
-
-
-
-\---
-
-
-
-\## 2. Общие соглашения
-
-
-
-\### 2.1. Формат API
-
-
-
-Базовый префикс API:
-
-
+Все endpoint'ы API используют префикс:
 
 ```text
-
 /api
-
 ```
-
-
-
-Для передачи данных используется JSON.
-
-
 
 Пример:
 
-
-
-```json
-
-{
-
-&#x20; "title": "TeamFinder",
-
-&#x20; "description": "Сервис для поиска участников в проекты"
-
-}
-
+```http
+GET /api/projects
 ```
 
+### 2.2. Формат данных
 
+Основной формат обмена данными между frontend и backend — JSON.
 
-\### 2.2. Авторизация
+Пример:
 
+```json
+{
+  "title": "TeamFinder",
+  "description": "Сервис для поиска участников в проекты"
+}
+```
 
+### 2.3. Авторизация
 
 Часть endpoint'ов доступна только авторизованным пользователям.
 
+Backend должен определять текущего пользователя на основании данных авторизации. Frontend не передаёт `userId` для операций, выполняемых от имени текущего пользователя.
 
+Конкретный механизм авторизации (например, token-based или cookie-based authentication) определяется на этапе реализации backend и данным контрактом не фиксируется.
 
-Конкретный механизм авторизации (например, token-based authentication или cookie-based authentication) определяется при реализации backend и не фиксируется данным контрактом.
-
-
-
-Backend должен определять текущего пользователя на основании данных авторизации, а не принимать `userId` от frontend там, где действие выполняется от имени текущего пользователя.
-
-
-
-\### 2.3. Основные HTTP-коды
-
-
+### 2.4. Основные HTTP-коды
 
 | Код | Значение |
-
 |---|---|
-
 | `200 OK` | Запрос успешно выполнен |
-
-| `201 Created` | Ресурс успешно создан |
-
+| `201 Created` | Новый ресурс успешно создан |
 | `204 No Content` | Действие выполнено, тело ответа отсутствует |
-
 | `400 Bad Request` | Некорректные входные данные |
-
-| `401 Unauthorized` | Пользователь не авторизован |
-
+| `401 Unauthorized` | Пользователь не аутентифицирован |
 | `403 Forbidden` | Пользователь не имеет прав на действие |
-
 | `404 Not Found` | Ресурс не найден |
+| `409 Conflict` | Операция конфликтует с текущим состоянием системы |
 
-| `409 Conflict` | Действие конфликтует с текущим состоянием системы |
-
-
-
-\### 2.4. Формат ошибки
-
-
-
-Общий формат ошибки:
-
-
+### 2.5. Формат ошибки
 
 ```json
-
 {
-
-&#x20; "code": "ERROR\_CODE",
-
-&#x20; "message": "Описание ошибки"
-
+  "code": "ERROR_CODE",
+  "message": "Описание ошибки"
 }
-
 ```
 
-
-
-Для ошибок валидации допускается дополнительное поле `errors`:
-
-
+Для ошибок валидации:
 
 ```json
-
 {
-
-&#x20; "code": "VALIDATION\_ERROR",
-
-&#x20; "message": "Некорректные входные данные",
-
-&#x20; "errors": {
-
-&#x20;   "email": \[
-
-&#x20;     "Некорректный формат email"
-
-&#x20;   ]
-
-&#x20; }
-
+  "code": "VALIDATION_ERROR",
+  "message": "Некорректные входные данные",
+  "errors": {
+    "email": [
+      "Некорректный формат email"
+    ]
+  }
 }
-
 ```
 
+---
 
+## 3. Сводная таблица API
 
-\---
+### 3.1. Auth и Profile
 
+| Method | Endpoint | Назначение | Доступ |
+|---|---|---|---|
+| `POST` | `/api/auth/register` | Регистрация | Гость |
+| `POST` | `/api/auth/login` | Вход | Гость |
+| `POST` | `/api/auth/logout` | Выход | Авторизованный |
+| `GET` | `/api/profile` | Получить свой профиль | Авторизованный |
+| `PATCH` | `/api/profile` | Изменить свой профиль | Авторизованный |
 
+### 3.2. Dictionaries
 
-\# 3. Auth
+| Method | Endpoint | Назначение | Доступ |
+|---|---|---|---|
+| `GET` | `/api/skills` | Получить справочник навыков | Авторизованный |
+| `GET` | `/api/role-types` | Получить справочник типов ролей | Авторизованный |
 
+### 3.3. Projects и Project Roles
 
+| Method | Endpoint | Назначение | Доступ |
+|---|---|---|---|
+| `GET` | `/api/projects` | Каталог проектов | Авторизованный |
+| `GET` | `/api/projects/{projectId}` | Просмотр проекта | Авторизованный |
+| `POST` | `/api/projects` | Создать проект | Авторизованный |
+| `PATCH` | `/api/projects/{projectId}` | Изменить проект | Владелец |
+| `POST` | `/api/projects/{projectId}/roles` | Создать роль проекта | Владелец |
+| `PATCH` | `/api/project-roles/{roleId}` | Изменить роль проекта | Владелец |
+| `GET` | `/api/project-roles/{roleId}/match` | Получить matching | Авторизованный |
 
-\## 3.1. Регистрация
+### 3.4. Applications и Team
 
+| Method | Endpoint | Назначение | Доступ |
+|---|---|---|---|
+| `POST` | `/api/project-roles/{roleId}/applications` | Подать заявку | Авторизованный |
+| `GET` | `/api/applications/mine` | Получить свои заявки | Авторизованный |
+| `POST` | `/api/applications/{applicationId}/withdraw` | Отозвать заявку | Автор заявки |
+| `GET` | `/api/projects/{projectId}/applications` | Получить заявки проекта | Владелец |
+| `POST` | `/api/applications/{applicationId}/accept` | Принять заявку | Владелец |
+| `POST` | `/api/applications/{applicationId}/reject` | Отклонить заявку | Владелец |
+| `GET` | `/api/projects/{projectId}/team` | Получить команду проекта | Владелец / участник |
+| `POST` | `/api/projects/{projectId}/team/leave` | Покинуть команду | Участник |
+| `DELETE` | `/api/projects/{projectId}/members/{userId}` | Удалить участника | Владелец |
 
+### 3.5. Project Lifecycle
 
-```http
+| Method | Endpoint | Назначение | Доступ |
+|---|---|---|---|
+| `POST` | `/api/projects/{projectId}/recruiting` | Открыть набор | Владелец |
+| `POST` | `/api/projects/{projectId}/start` | Начать проект | Владелец |
+| `POST` | `/api/projects/{projectId}/complete` | Завершить проект | Владелец |
+| `POST` | `/api/projects/{projectId}/cancel` | Отменить проект | Владелец |
 
-POST /api/auth/register
+---
 
-```
+## 4. Auth
 
+### 4.1. Регистрация
 
+#### `POST /api/auth/register`
 
 Создаёт нового пользователя TeamFinder.
 
+**Доступ:** гость.
 
+#### Request
 
-\### Request
-
-
-
-```json
-
-{
-
-&#x20; "email": "user@example.com",
-
-&#x20; "password": "password",
-
-&#x20; "displayName": "Evgen"
-
-}
-
-```
-
-
-
-\### Response — `201 Created`
-
-
+| Поле | Тип | Обязательное | Описание |
+|---|---|:---:|---|
+| `email` | string | Да | Email пользователя |
+| `password` | string | Да | Пароль пользователя |
+| `displayName` | string | Да | Отображаемое имя |
 
 ```json
-
 {
-
-&#x20; "id": 7,
-
-&#x20; "email": "user@example.com",
-
-&#x20; "displayName": "Evgen"
-
+  "email": "user@example.com",
+  "password": "password",
+  "displayName": "Evgen"
 }
-
 ```
 
+#### Response — `201 Created`
 
-
-\### Ошибки
-
-
-
-\- `400 Bad Request` — некорректные данные;
-
-\- `409 Conflict` — пользователь с таким email уже существует.
-
-
-
-Пароль не должен храниться в базе данных в открытом виде.
-
-
-
-\---
-
-
-
-\## 3.2. Вход
-
-
-
-```http
-
-POST /api/auth/login
-
+```json
+{
+  "id": 7,
+  "email": "user@example.com",
+  "displayName": "Evgen"
+}
 ```
 
+#### Ошибки
 
+| Код | Причина |
+|---|---|
+| `400 Bad Request` | Некорректные регистрационные данные |
+| `409 Conflict` | Пользователь с таким email уже существует |
+
+> Пароль не должен храниться в базе данных в открытом виде.
+
+---
+
+### 4.2. Вход
+
+#### `POST /api/auth/login`
 
 Выполняет аутентификацию пользователя.
 
+**Доступ:** гость.
 
+#### Request
 
-\### Request
-
-
-
-```json
-
-{
-
-&#x20; "email": "user@example.com",
-
-&#x20; "password": "password"
-
-}
-
-```
-
-
-
-\### Response — `200 OK`
-
-
+| Поле | Тип | Обязательное | Описание |
+|---|---|:---:|---|
+| `email` | string | Да | Email пользователя |
+| `password` | string | Да | Пароль пользователя |
 
 ```json
-
 {
-
-&#x20; "user": {
-
-&#x20;   "id": 7,
-
-&#x20;   "email": "user@example.com",
-
-&#x20;   "displayName": "Evgen"
-
-&#x20; }
-
+  "email": "user@example.com",
+  "password": "password"
 }
-
 ```
 
+#### Response — `200 OK`
 
-
-Данные, необходимые для поддержания авторизованной сессии, зависят от выбранного механизма авторизации.
-
-
-
-\### Ошибки
-
-
-
-\- `400 Bad Request` — некорректный запрос;
-
-\- `401 Unauthorized` — неверный email или пароль.
-
-
-
-\---
-
-
-
-\## 3.3. Выход
-
-
-
-```http
-
-POST /api/auth/logout
-
+```json
+{
+  "user": {
+    "id": 7,
+    "email": "user@example.com",
+    "displayName": "Evgen"
+  }
+}
 ```
 
+Данные для поддержания авторизованной сессии зависят от выбранного механизма авторизации.
 
+#### Ошибки
+
+| Код | Причина |
+|---|---|
+| `400 Bad Request` | Некорректный формат запроса |
+| `401 Unauthorized` | Неверный email или пароль |
+
+---
+
+### 4.3. Выход
+
+#### `POST /api/auth/logout`
 
 Завершает текущую авторизованную сессию.
 
+**Доступ:** авторизованный пользователь.
 
+#### Response — `204 No Content`
 
-Конкретная серверная логика зависит от выбранного механизма авторизации.
+---
 
+## 5. Profile
 
+### 5.1. Получить свой профиль
 
-\### Response — `204 No Content`
+#### `GET /api/profile`
 
+Возвращает профиль текущего пользователя.
 
+**Доступ:** авторизованный пользователь.
 
-\---
-
-
-
-\# 4. Profile
-
-
-
-\## 4.1. Получить свой профиль
-
-
-
-```http
-
-GET /api/profile
-
-```
-
-
-
-Возвращает профиль текущего авторизованного пользователя.
-
-
-
-\### Response — `200 OK`
-
-
+#### Response — `200 OK`
 
 ```json
-
 {
-
-&#x20; "id": 7,
-
-&#x20; "displayName": "Evgen",
-
-&#x20; "about": "Backend developer",
-
-&#x20; "interestedRoles": \[
-
-&#x20;   "Backend Developer"
-
-&#x20; ],
-
-&#x20; "skills": \[
-
-&#x20;   {
-
-&#x20;     "skillId": 1,
-
-&#x20;     "name": "C#",
-
-&#x20;     "level": "Intermediate"
-
-&#x20;   }
-
-&#x20; ]
-
+  "id": 7,
+  "displayName": "Evgen",
+  "about": "Backend developer",
+  "interestedRoles": [
+    {
+      "roleTypeId": 1,
+      "name": "Backend Developer"
+    }
+  ],
+  "skills": [
+    {
+      "skillId": 1,
+      "name": "C#",
+      "level": "Intermediate"
+    }
+  ]
 }
-
 ```
 
+#### Ошибки
 
+| Код | Причина |
+|---|---|
+| `401 Unauthorized` | Пользователь не авторизован |
 
-\### Ошибки
+---
 
+### 5.2. Изменить профиль
 
-
-\- `401 Unauthorized` — пользователь не авторизован.
-
-
-
-\---
-
-
-
-\## 4.2. Изменить профиль
-
-
-
-```http
-
-PATCH /api/profile
-
-```
-
-
+#### `PATCH /api/profile`
 
 Частично изменяет профиль текущего пользователя.
 
+**Доступ:** авторизованный пользователь.
 
+#### Request
 
-\### Request
+| Поле | Тип | Обязательное | Описание |
+|---|---|:---:|---|
+| `displayName` | string | Нет | Отображаемое имя |
+| `about` | string | Нет | Информация о пользователе |
+| `interestedRoleTypeIds` | array | Нет | Интересующие типы ролей |
+| `skills` | array | Нет | Навыки пользователя |
 
+```json
+{
+  "displayName": "Evgen",
+  "about": "Backend developer, изучаю ASP.NET Core",
+  "interestedRoleTypeIds": [1],
+  "skills": [
+    {
+      "skillId": 1,
+      "level": "Intermediate"
+    },
+    {
+      "skillId": 2,
+      "level": "Beginner"
+    }
+  ]
+}
+```
 
+Допустимые уровни навыков:
+
+| Значение | Описание |
+|---|---|
+| `Beginner` | Начальный уровень |
+| `Intermediate` | Средний уровень |
+| `Advanced` | Продвинутый уровень |
+
+#### Response — `200 OK`
+
+Возвращает обновлённый профиль.
+
+#### Ошибки
+
+| Код | Причина |
+|---|---|
+| `400 Bad Request` | Некорректные данные |
+| `401 Unauthorized` | Пользователь не авторизован |
+| `404 Not Found` | Skill или role type не существует |
+| `409 Conflict` | Один skill указан несколько раз |
+
+---
+
+## 6. Dictionaries
+
+### 6.1. Получить навыки
+
+#### `GET /api/skills`
+
+Возвращает справочник доступных навыков.
+
+**Доступ:** авторизованный пользователь.
+
+#### Response — `200 OK`
+
+```json
+[
+  {
+    "id": 1,
+    "name": "C#"
+  },
+  {
+    "id": 2,
+    "name": "ASP.NET Core"
+  },
+  {
+    "id": 3,
+    "name": "PostgreSQL"
+  }
+]
+```
+
+### 6.2. Получить типы ролей
+
+#### `GET /api/role-types`
+
+Возвращает справочник типов ролей.
+
+**Доступ:** авторизованный пользователь.
+
+#### Response — `200 OK`
+
+```json
+[
+  {
+    "id": 1,
+    "name": "Backend Developer"
+  },
+  {
+    "id": 2,
+    "name": "Frontend Developer"
+  },
+  {
+    "id": 3,
+    "name": "Designer"
+  }
+]
+```
+
+---
+
+## 7. Projects
+
+### 7.1. Получить каталог проектов
+
+#### `GET /api/projects`
+
+Возвращает проекты, доступные в каталоге.
+
+**Доступ:** авторизованный пользователь.
+
+#### Query parameters
+
+| Параметр | Тип | Обязательный | Описание |
+|---|---|:---:|---|
+| `type` | string | Нет | Фильтр по типу проекта |
+| `skillId` | integer | Нет | Фильтр по требуемому навыку |
 
 Пример:
 
+```http
+GET /api/projects?type=PET_PROJECT&skillId=1
+```
 
+#### Response — `200 OK`
 
 ```json
+[
+  {
+    "id": 42,
+    "title": "TeamFinder",
+    "description": "Сервис для поиска участников в проекты",
+    "type": "PET_PROJECT",
+    "state": "RECRUITING"
+  }
+]
+```
 
+---
+
+### 7.2. Получить проект
+
+#### `GET /api/projects/{projectId}`
+
+Возвращает информацию о проекте и его ролях.
+
+**Доступ:** авторизованный пользователь.
+
+#### Response — `200 OK`
+
+```json
 {
-
-&#x20; "displayName": "Evgen",
-
-&#x20; "about": "Backend developer, изучаю ASP.NET Core",
-
-&#x20; "interestedRoleTypeIds": \[1],
-
-&#x20; "skills": \[
-
-&#x20;   {
-
-&#x20;     "skillId": 1,
-
-&#x20;     "level": "Intermediate"
-
-&#x20;   },
-
-&#x20;   {
-
-&#x20;     "skillId": 2,
-
-&#x20;     "level": "Beginner"
-
-&#x20;   }
-
-&#x20; ]
-
+  "id": 42,
+  "title": "TeamFinder",
+  "description": "Сервис для поиска участников в проекты",
+  "type": "PET_PROJECT",
+  "state": "RECRUITING",
+  "owner": {
+    "id": 7,
+    "displayName": "Evgen"
+  },
+  "roles": [
+    {
+      "id": 15,
+      "name": "Backend Developer",
+      "capacity": 1,
+      "acceptedCount": 0
+    }
+  ]
 }
-
 ```
 
+#### Ошибки
 
+| Код | Причина |
+|---|---|
+| `401 Unauthorized` | Пользователь не авторизован |
+| `404 Not Found` | Проект не найден |
 
-Уровни навыков v1:
+---
 
+### 7.3. Создать проект
 
-
-```text
-
-Beginner
-
-Intermediate
-
-Advanced
-
-```
-
-
-
-\### Response — `200 OK`
-
-
-
-Возвращается обновлённый профиль.
-
-
-
-\### Ошибки
-
-
-
-\- `400 Bad Request` — некорректные данные;
-
-\- `401 Unauthorized` — пользователь не авторизован;
-
-\- `404 Not Found` — указанный skill или role type не существует;
-
-\- `409 Conflict` — один skill указан в профиле несколько раз.
-
-
-
-\---
-
-
-
-\# 5. Dictionaries
-
-
-
-\## 5.1. Получить список навыков
-
-
-
-```http
-
-GET /api/skills
-
-```
-
-
-
-\### Response — `200 OK`
-
-
-
-```json
-
-\[
-
-&#x20; {
-
-&#x20;   "id": 1,
-
-&#x20;   "name": "C#"
-
-&#x20; },
-
-&#x20; {
-
-&#x20;   "id": 2,
-
-&#x20;   "name": "ASP.NET Core"
-
-&#x20; },
-
-&#x20; {
-
-&#x20;   "id": 3,
-
-&#x20;   "name": "PostgreSQL"
-
-&#x20; }
-
-]
-
-```
-
-
-
-\---
-
-
-
-\## 5.2. Получить типы ролей
-
-
-
-```http
-
-GET /api/role-types
-
-```
-
-
-
-\### Response — `200 OK`
-
-
-
-```json
-
-\[
-
-&#x20; {
-
-&#x20;   "id": 1,
-
-&#x20;   "name": "Backend Developer"
-
-&#x20; },
-
-&#x20; {
-
-&#x20;   "id": 2,
-
-&#x20;   "name": "Frontend Developer"
-
-&#x20; },
-
-&#x20; {
-
-&#x20;   "id": 3,
-
-&#x20;   "name": "Designer"
-
-&#x20; }
-
-]
-
-```
-
-
-
-\---
-
-
-
-\# 6. Projects
-
-
-
-\## 6.1. Получить каталог проектов
-
-
-
-```http
-
-GET /api/projects
-
-```
-
-
-
-Возвращает проекты, доступные для просмотра в каталоге.
-
-
-
-Поддерживаются query parameters для фильтрации.
-
-
-
-Пример:
-
-
-
-```http
-
-GET /api/projects?type=PET\_PROJECT\&skillId=1
-
-```
-
-
-
-\### Response — `200 OK`
-
-
-
-```json
-
-\[
-
-&#x20; {
-
-&#x20;   "id": 42,
-
-&#x20;   "title": "TeamFinder",
-
-&#x20;   "description": "Сервис для поиска участников в проекты",
-
-&#x20;   "type": "PET\_PROJECT",
-
-&#x20;   "state": "RECRUITING"
-
-&#x20; }
-
-]
-
-```
-
-
-
-\---
-
-
-
-\## 6.2. Получить проект
-
-
-
-```http
-
-GET /api/projects/{projectId}
-
-```
-
-
-
-Возвращает информацию о конкретном проекте и его ролях.
-
-
-
-\### Response — `200 OK`
-
-
-
-```json
-
-{
-
-&#x20; "id": 42,
-
-&#x20; "title": "TeamFinder",
-
-&#x20; "description": "Сервис для поиска участников в проекты",
-
-&#x20; "type": "PET\_PROJECT",
-
-&#x20; "state": "RECRUITING",
-
-&#x20; "owner": {
-
-&#x20;   "id": 7,
-
-&#x20;   "displayName": "Evgen"
-
-&#x20; },
-
-&#x20; "roles": \[
-
-&#x20;   {
-
-&#x20;     "id": 15,
-
-&#x20;     "name": "Backend Developer",
-
-&#x20;     "capacity": 1,
-
-&#x20;     "acceptedCount": 0
-
-&#x20;   }
-
-&#x20; ]
-
-}
-
-```
-
-
-
-\### Ошибки
-
-
-
-\- `404 Not Found` — проект не найден.
-
-
-
-\---
-
-
-
-\## 6.3. Создать проект
-
-
-
-```http
-
-POST /api/projects
-
-```
-
-
+#### `POST /api/projects`
 
 Создаёт новый проект.
 
+**Доступ:** авторизованный пользователь.
 
+Текущий пользователь автоматически становится владельцем проекта. Начальное состояние — `DRAFT`.
 
-Текущий авторизованный пользователь автоматически становится владельцем проекта.
+#### Request
 
-
-
-Начальное состояние проекта:
-
-
-
-```text
-
-DRAFT
-
-```
-
-
-
-\### Request
-
-
+| Поле | Тип | Обязательное | Описание |
+|---|---|:---:|---|
+| `title` | string | Да | Название проекта |
+| `description` | string | Да | Описание проекта |
+| `type` | string | Да | Тип проекта |
 
 ```json
-
 {
-
-&#x20; "title": "TeamFinder",
-
-&#x20; "description": "Сервис для поиска участников в проекты",
-
-&#x20; "type": "PET\_PROJECT"
-
+  "title": "TeamFinder",
+  "description": "Сервис для поиска участников в проекты",
+  "type": "PET_PROJECT"
 }
-
 ```
 
-
-
-\### Response — `201 Created`
-
-
+#### Response — `201 Created`
 
 ```json
-
 {
-
-&#x20; "id": 42,
-
-&#x20; "title": "TeamFinder",
-
-&#x20; "description": "Сервис для поиска участников в проекты",
-
-&#x20; "type": "PET\_PROJECT",
-
-&#x20; "state": "DRAFT",
-
-&#x20; "ownerId": 7
-
+  "id": 42,
+  "title": "TeamFinder",
+  "description": "Сервис для поиска участников в проекты",
+  "type": "PET_PROJECT",
+  "state": "DRAFT",
+  "ownerId": 7
 }
-
 ```
 
+---
 
+### 7.4. Изменить проект
 
-\### Ошибки
-
-
-
-\- `400 Bad Request` — некорректные данные;
-
-\- `401 Unauthorized` — пользователь не авторизован.
-
-
-
-\---
-
-
-
-\## 6.4. Изменить проект
-
-
-
-```http
-
-PATCH /api/projects/{projectId}
-
-```
-
-
+#### `PATCH /api/projects/{projectId}`
 
 Изменяет основные данные проекта.
 
+**Доступ:** владелец проекта.
 
-
-Доступно владельцу проекта.
-
-
-
-\### Request
-
-
+#### Request
 
 ```json
-
 {
-
-&#x20; "title": "TeamFinder v1",
-
-&#x20; "description": "Обновлённое описание проекта"
-
+  "title": "TeamFinder v1",
+  "description": "Обновлённое описание проекта"
 }
-
 ```
 
+#### Ошибки
 
+| Код | Причина |
+|---|---|
+| `400 Bad Request` | Некорректные данные |
+| `401 Unauthorized` | Пользователь не авторизован |
+| `403 Forbidden` | Пользователь не является владельцем проекта |
+| `404 Not Found` | Проект не найден |
 
-\### Response — `200 OK`
+---
 
+## 8. Project Roles
 
+### 8.1. Создать роль проекта
 
-Возвращается обновлённый проект.
-
-
-
-\### Ошибки
-
-
-
-\- `400 Bad Request` — некорректные данные;
-
-\- `401 Unauthorized` — пользователь не авторизован;
-
-\- `403 Forbidden` — пользователь не является владельцем;
-
-\- `404 Not Found` — проект не найден.
-
-
-
-\---
-
-
-
-\# 7. Project Roles
-
-
-
-\## 7.1. Создать роль проекта
-
-
-
-```http
-
-POST /api/projects/{projectId}/roles
-
-```
-
-
+#### `POST /api/projects/{projectId}/roles`
 
 Создаёт роль, на которую проект ищет участников.
 
+**Доступ:** владелец проекта.
 
+#### Request
 
-Доступно владельцу проекта.
-
-
-
-\### Request
-
-
-
-```json
-
-{
-
-&#x20; "roleTypeId": 1,
-
-&#x20; "name": "Backend Developer",
-
-&#x20; "description": "Разработка backend на ASP.NET Core",
-
-&#x20; "capacity": 1,
-
-&#x20; "requiredSkills": \[
-
-&#x20;   {
-
-&#x20;     "skillId": 1,
-
-&#x20;     "level": "Intermediate"
-
-&#x20;   }
-
-&#x20; ],
-
-&#x20; "niceToHaveSkills": \[
-
-&#x20;   {
-
-&#x20;     "skillId": 3,
-
-&#x20;     "level": "Beginner"
-
-&#x20;   }
-
-&#x20; ]
-
-}
-
-```
-
-
-
-\### Response — `201 Created`
-
-
+| Поле | Тип | Обязательное | Описание |
+|---|---|:---:|---|
+| `roleTypeId` | integer | Да | Тип роли |
+| `name` | string | Да | Название роли |
+| `description` | string | Да | Описание роли |
+| `capacity` | integer | Да | Количество мест |
+| `requiredSkills` | array | Нет | Обязательные навыки |
+| `niceToHaveSkills` | array | Нет | Желательные навыки |
 
 ```json
-
 {
-
-&#x20; "id": 15,
-
-&#x20; "projectId": 42,
-
-&#x20; "roleTypeId": 1,
-
-&#x20; "name": "Backend Developer",
-
-&#x20; "description": "Разработка backend на ASP.NET Core",
-
-&#x20; "capacity": 1
-
+  "roleTypeId": 1,
+  "name": "Backend Developer",
+  "description": "Разработка backend на ASP.NET Core",
+  "capacity": 1,
+  "requiredSkills": [
+    {
+      "skillId": 1,
+      "level": "Intermediate"
+    }
+  ],
+  "niceToHaveSkills": [
+    {
+      "skillId": 3,
+      "level": "Beginner"
+    }
+  ]
 }
-
 ```
 
+#### Response — `201 Created`
 
-
-\### Ошибки
-
-
-
-\- `400 Bad Request` — некорректные данные;
-
-\- `401 Unauthorized` — пользователь не авторизован;
-
-\- `403 Forbidden` — пользователь не является владельцем проекта;
-
-\- `404 Not Found` — проект, skill или role type не найден.
-
-
-
-\---
-
-
-
-\## 7.2. Изменить роль проекта
-
-
-
-```http
-
-PATCH /api/project-roles/{roleId}
-
+```json
+{
+  "id": 15,
+  "projectId": 42,
+  "roleTypeId": 1,
+  "name": "Backend Developer",
+  "description": "Разработка backend на ASP.NET Core",
+  "capacity": 1
+}
 ```
 
+---
 
+### 8.2. Изменить роль проекта
 
-Изменяет параметры роли.
+#### `PATCH /api/project-roles/{roleId}`
 
+Изменяет параметры существующей роли.
 
+**Доступ:** владелец проекта.
 
-После появления заявок ключевые требования роли блокируются от изменения.
+После появления заявок ключевые требования роли блокируются от изменения. Описание роли может изменяться. `capacity` можно увеличивать, но нельзя уменьшать ниже количества уже принятых участников.
 
+#### Ошибки
 
+| Код | Причина |
+|---|---|
+| `400 Bad Request` | Некорректные данные |
+| `401 Unauthorized` | Пользователь не авторизован |
+| `403 Forbidden` | Пользователь не является владельцем проекта |
+| `404 Not Found` | Роль не найдена |
+| `409 Conflict` | Изменение нарушает бизнес-правила роли |
 
-Описание роли может изменяться.
+---
 
+## 9. Matching
 
+### 9.1. Получить matching для роли
 
-`capacity` может быть увеличен, но не может быть установлен ниже количества уже принятых участников.
-
-
-
-\### Ошибки
-
-
-
-\- `400 Bad Request` — некорректные данные;
-
-\- `401 Unauthorized` — пользователь не авторизован;
-
-\- `403 Forbidden` — пользователь не является владельцем проекта;
-
-\- `404 Not Found` — роль не найдена;
-
-\- `409 Conflict` — изменение нарушает текущее состояние роли.
-
-
-
-\---
-
-
-
-\# 8. Matching
-
-
-
-\## 8.1. Получить matching для роли
-
-
-
-```http
-
-GET /api/project-roles/{roleId}/match
-
-```
-
-
+#### `GET /api/project-roles/{roleId}/match`
 
 Сравнивает навыки текущего пользователя с требованиями конкретной роли.
 
+**Доступ:** авторизованный пользователь.
 
+Matching является рекомендательным. В v1 не используется ML и не рассчитывается искусственный процент соответствия.
 
-Matching является рекомендательным и не принимает решение за владельца проекта.
-
-
-
-В v1 не используется ML и не рассчитывается искусственный процент соответствия.
-
-
-
-\### Response — `200 OK`
-
-
+#### Response — `200 OK`
 
 ```json
-
 {
-
-&#x20; "required": \[
-
-&#x20;   {
-
-&#x20;     "skill": "C#",
-
-&#x20;     "requiredLevel": "Intermediate",
-
-&#x20;     "userLevel": "Intermediate",
-
-&#x20;     "matched": true
-
-&#x20;   },
-
-&#x20;   {
-
-&#x20;     "skill": "PostgreSQL",
-
-&#x20;     "requiredLevel": "Beginner",
-
-&#x20;     "userLevel": "Intermediate",
-
-&#x20;     "matched": true
-
-&#x20;   }
-
-&#x20; ],
-
-&#x20; "niceToHave": \[
-
-&#x20;   {
-
-&#x20;     "skill": "Docker",
-
-&#x20;     "requiredLevel": "Beginner",
-
-&#x20;     "userLevel": null,
-
-&#x20;     "matched": false
-
-&#x20;   }
-
-&#x20; ],
-
-&#x20; "summary": {
-
-&#x20;   "requiredMatched": 2,
-
-&#x20;   "requiredTotal": 2,
-
-&#x20;   "niceToHaveMatched": 0,
-
-&#x20;   "niceToHaveTotal": 1
-
-&#x20; }
-
+  "required": [
+    {
+      "skill": "C#",
+      "requiredLevel": "Intermediate",
+      "userLevel": "Intermediate",
+      "matched": true
+    },
+    {
+      "skill": "PostgreSQL",
+      "requiredLevel": "Beginner",
+      "userLevel": "Intermediate",
+      "matched": true
+    }
+  ],
+  "niceToHave": [
+    {
+      "skill": "Docker",
+      "requiredLevel": "Beginner",
+      "userLevel": null,
+      "matched": false
+    }
+  ],
+  "summary": {
+    "requiredMatched": 2,
+    "requiredTotal": 2,
+    "niceToHaveMatched": 0,
+    "niceToHaveTotal": 1
+  }
 }
-
 ```
 
+---
 
+## 10. Applications
 
-\### Ошибки
+### 10.1. Подать заявку
 
+#### `POST /api/project-roles/{roleId}/applications`
 
+Создаёт заявку текущего пользователя на роль.
 
-\- `401 Unauthorized` — пользователь не авторизован;
+**Доступ:** авторизованный пользователь.
 
-\- `404 Not Found` — роль не найдена.
+#### Request
 
-
-
-\---
-
-
-
-\# 9. Applications
-
-
-
-\## 9.1. Подать заявку
-
-
-
-```http
-
-POST /api/project-roles/{roleId}/applications
-
-```
-
-
-
-Создаёт заявку текущего пользователя на конкретную роль.
-
-
-
-\### Request
-
-
+| Поле | Тип | Обязательное | Описание |
+|---|---|:---:|---|
+| `comment` | string | Нет | Комментарий кандидата |
 
 ```json
-
 {
-
-&#x20; "comment": "Хочу присоединиться к проекту и заниматься backend."
-
+  "comment": "Хочу присоединиться к проекту и заниматься backend."
 }
-
 ```
 
+Начальное состояние заявки — `PENDING`.
 
-
-Комментарий является необязательным.
-
-
-
-Начальное состояние заявки:
-
-
-
-```text
-
-PENDING
-
-```
-
-
-
-\### Response — `201 Created`
-
-
+#### Response — `201 Created`
 
 ```json
-
 {
-
-&#x20; "id": 101,
-
-&#x20; "projectRoleId": 15,
-
-&#x20; "status": "PENDING",
-
-&#x20; "comment": "Хочу присоединиться к проекту и заниматься backend."
-
+  "id": 101,
+  "projectRoleId": 15,
+  "status": "PENDING",
+  "comment": "Хочу присоединиться к проекту и заниматься backend."
 }
-
 ```
 
+#### Бизнес-правила
 
+- один пользователь может иметь только одну заявку на конкретную роль;
+- пользователь может подавать заявки на разные роли одного проекта;
+- повторная заявка на ту же роль после `REJECTED`, `WITHDRAWN` или `CLOSED` в v1 не создаётся;
+- создание заявки не занимает место в `capacity`;
+- отсутствие части required skills само по себе не запрещает подачу заявки.
 
-\### Бизнес-правила
+---
 
+### 10.2. Получить свои заявки
 
-
-\- один пользователь может иметь только одну заявку на одну конкретную роль в v1;
-
-\- пользователь может подать заявки на разные роли одного проекта;
-
-\- отклонённую, отозванную или закрытую заявку на ту же роль нельзя создать повторно в v1;
-
-\- создание заявки не занимает место в `capacity`;
-
-\- отсутствие части required skills само по себе не запрещает подачу заявки.
-
-
-
-\### Ошибки
-
-
-
-\- `400 Bad Request` — некорректные данные;
-
-\- `401 Unauthorized` — пользователь не авторизован;
-
-\- `404 Not Found` — роль не найдена;
-
-\- `409 Conflict` — заявка на эту роль уже существует или набор на неё недоступен.
-
-
-
-\---
-
-
-
-\## 9.2. Получить свои заявки
-
-
-
-```http
-
-GET /api/applications/mine
-
-```
-
-
+#### `GET /api/applications/mine`
 
 Возвращает заявки текущего пользователя.
 
+**Доступ:** авторизованный пользователь.
 
-
-\### Response — `200 OK`
-
-
+#### Response — `200 OK`
 
 ```json
-
-\[
-
-&#x20; {
-
-&#x20;   "id": 101,
-
-&#x20;   "projectId": 42,
-
-&#x20;   "projectTitle": "TeamFinder",
-
-&#x20;   "projectRoleId": 15,
-
-&#x20;   "roleName": "Backend Developer",
-
-&#x20;   "status": "PENDING"
-
-&#x20; }
-
+[
+  {
+    "id": 101,
+    "projectId": 42,
+    "projectTitle": "TeamFinder",
+    "projectRoleId": 15,
+    "roleName": "Backend Developer",
+    "status": "PENDING"
+  }
 ]
-
 ```
 
+---
 
+### 10.3. Отозвать заявку
 
-\### Ошибки
-
-
-
-\- `401 Unauthorized` — пользователь не авторизован.
-
-
-
-\---
-
-
-
-\## 9.3. Отозвать заявку
-
-
-
-```http
-
-POST /api/applications/{applicationId}/withdraw
-
-```
-
-
+#### `POST /api/applications/{applicationId}/withdraw`
 
 Позволяет кандидату отозвать свою заявку.
 
+**Доступ:** автор заявки.
 
-
-Отозвать можно только заявку, для которой это разрешено текущим состоянием.
-
-
-
-\### Response — `200 OK`
-
-
+#### Response — `200 OK`
 
 ```json
-
 {
-
-&#x20; "id": 101,
-
-&#x20; "status": "WITHDRAWN"
-
+  "id": 101,
+  "status": "WITHDRAWN"
 }
-
 ```
 
+#### Ошибки
 
+| Код | Причина |
+|---|---|
+| `401 Unauthorized` | Пользователь не авторизован |
+| `403 Forbidden` | Заявка принадлежит другому пользователю |
+| `404 Not Found` | Заявка не найдена |
+| `409 Conflict` | Заявку нельзя отозвать в текущем состоянии |
 
-\### Ошибки
+---
 
+### 10.4. Получить заявки проекта
 
-
-\- `401 Unauthorized` — пользователь не авторизован;
-
-\- `403 Forbidden` — заявка принадлежит другому пользователю;
-
-\- `404 Not Found` — заявка не найдена;
-
-\- `409 Conflict` — заявку нельзя отозвать в текущем состоянии.
-
-
-
-\---
-
-
-
-\## 9.4. Получить заявки проекта
-
-
-
-```http
-
-GET /api/projects/{projectId}/applications
-
-```
-
-
+#### `GET /api/projects/{projectId}/applications`
 
 Возвращает заявки на роли проекта.
 
+**Доступ:** владелец проекта.
 
-
-Доступно владельцу проекта.
-
-
-
-\### Response — `200 OK`
-
-
+#### Response — `200 OK`
 
 ```json
-
-\[
-
-&#x20; {
-
-&#x20;   "id": 101,
-
-&#x20;   "status": "PENDING",
-
-&#x20;   "role": {
-
-&#x20;     "id": 15,
-
-&#x20;     "name": "Backend Developer"
-
-&#x20;   },
-
-&#x20;   "candidate": {
-
-&#x20;     "id": 12,
-
-&#x20;     "displayName": "Alex"
-
-&#x20;   },
-
-&#x20;   "comment": "Хочу заниматься backend."
-
-&#x20; }
-
+[
+  {
+    "id": 101,
+    "status": "PENDING",
+    "role": {
+      "id": 15,
+      "name": "Backend Developer"
+    },
+    "candidate": {
+      "id": 12,
+      "displayName": "Alex"
+    },
+    "comment": "Хочу заниматься backend."
+  }
 ]
-
 ```
 
+---
 
+### 10.5. Принять заявку
 
-\### Ошибки
-
-
-
-\- `401 Unauthorized` — пользователь не авторизован;
-
-\- `403 Forbidden` — пользователь не является владельцем проекта;
-
-\- `404 Not Found` — проект не найден.
-
-
-
-\---
-
-
-
-\## 9.5. Принять заявку
-
-
-
-```http
-
-POST /api/applications/{applicationId}/accept
-
-```
-
-
+#### `POST /api/applications/{applicationId}/accept`
 
 Принимает заявку кандидата.
 
-
-
-Доступно владельцу проекта.
-
-
+**Доступ:** владелец проекта.
 
 При успешном принятии:
 
+1. `Application` получает состояние `ACCEPTED`;
+2. создаётся `Membership`;
+3. место в `capacity` считается занятым;
+4. другие `PENDING`-заявки пользователя в этом проекте закрываются.
 
+Проверка свободного места выполняется непосредственно при принятии заявки.
 
-1\. заявка получает состояние `ACCEPTED`;
-
-2\. создаётся `Membership`;
-
-3\. место в `capacity` считается занятым;
-
-4\. другие `PENDING`-заявки этого пользователя на роли того же проекта закрываются.
-
-
-
-Проверка `capacity` должна выполняться непосредственно при принятии заявки, чтобы конкурентные запросы не могли переполнить роль.
-
-
-
-\### Response — `200 OK`
-
-
+#### Response — `200 OK`
 
 ```json
-
 {
-
-&#x20; "applicationId": 101,
-
-&#x20; "status": "ACCEPTED",
-
-&#x20; "membershipId": 55
-
+  "applicationId": 101,
+  "status": "ACCEPTED",
+  "membershipId": 55
 }
-
 ```
 
+#### Ошибки
 
+| Код | Причина |
+|---|---|
+| `401 Unauthorized` | Пользователь не авторизован |
+| `403 Forbidden` | Пользователь не является владельцем проекта |
+| `404 Not Found` | Заявка не найдена |
+| `409 Conflict` | Заявка обработана, роль заполнена или операция недоступна |
 
-\### Ошибки
+---
 
+### 10.6. Отклонить заявку
 
-
-\- `401 Unauthorized` — пользователь не авторизован;
-
-\- `403 Forbidden` — пользователь не является владельцем проекта;
-
-\- `404 Not Found` — заявка не найдена;
-
-\- `409 Conflict` — заявка уже обработана, роль заполнена или принятие невозможно в текущем состоянии проекта.
-
-
-
-\---
-
-
-
-\## 9.6. Отклонить заявку
-
-
-
-```http
-
-POST /api/applications/{applicationId}/reject
-
-```
-
-
+#### `POST /api/applications/{applicationId}/reject`
 
 Отклоняет заявку кандидата.
 
+**Доступ:** владелец проекта.
 
-
-Доступно владельцу проекта.
-
-
-
-\### Response — `200 OK`
-
-
+#### Response — `200 OK`
 
 ```json
-
 {
-
-&#x20; "applicationId": 101,
-
-&#x20; "status": "REJECTED"
-
+  "applicationId": 101,
+  "status": "REJECTED"
 }
-
 ```
 
+---
 
+## 11. Team
 
-\### Ошибки
+### 11.1. Получить команду проекта
 
-
-
-\- `401 Unauthorized` — пользователь не авторизован;
-
-\- `403 Forbidden` — пользователь не является владельцем проекта;
-
-\- `404 Not Found` — заявка не найдена;
-
-\- `409 Conflict` — заявка уже обработана или не может быть отклонена.
-
-
-
-\---
-
-
-
-\# 10. Team
-
-
-
-\## 10.1. Получить команду проекта
-
-
-
-```http
-
-GET /api/projects/{projectId}/team
-
-```
-
-
+#### `GET /api/projects/{projectId}/team`
 
 Возвращает владельца и участников проекта.
 
+**Доступ:** владелец проекта или участник команды.
 
-
-\### Response — `200 OK`
-
-
+#### Response — `200 OK`
 
 ```json
-
 {
-
-&#x20; "owner": {
-
-&#x20;   "id": 7,
-
-&#x20;   "displayName": "Evgen"
-
-&#x20; },
-
-&#x20; "members": \[
-
-&#x20;   {
-
-&#x20;     "userId": 12,
-
-&#x20;     "displayName": "Alex",
-
-&#x20;     "roleId": 15,
-
-&#x20;     "roleName": "Backend Developer"
-
-&#x20;   }
-
-&#x20; ]
-
+  "owner": {
+    "id": 7,
+    "displayName": "Evgen"
+  },
+  "members": [
+    {
+      "userId": 12,
+      "displayName": "Alex",
+      "roleId": 15,
+      "roleName": "Backend Developer"
+    }
+  ]
 }
-
 ```
 
+Владелец хранится отдельно от `Membership` и автоматически не занимает место в `capacity` роли.
 
+---
 
-Владелец проекта хранится отдельно и не занимает место в `capacity` роли автоматически.
+### 11.2. Покинуть команду
 
-
-
-\### Ошибки
-
-
-
-\- `404 Not Found` — проект не найден.
-
-
-
-\---
-
-
-
-\## 10.2. Покинуть команду
-
-
-
-```http
-
-POST /api/projects/{projectId}/team/leave
-
-```
-
-
+#### `POST /api/projects/{projectId}/team/leave`
 
 Текущий участник покидает команду проекта.
 
+**Доступ:** участник команды.
 
+#### Response — `204 No Content`
 
-\### Response — `204 No Content`
+---
 
+### 11.3. Удалить участника
 
+#### `DELETE /api/projects/{projectId}/members/{userId}`
 
-\### Ошибки
+Владелец удаляет участника из команды.
 
+**Доступ:** владелец проекта.
 
+#### Response — `204 No Content`
 
-\- `401 Unauthorized` — пользователь не авторизован;
+#### Ошибки
 
-\- `404 Not Found` — проект или membership не найден;
+| Код | Причина |
+|---|---|
+| `401 Unauthorized` | Пользователь не авторизован |
+| `403 Forbidden` | Пользователь не является владельцем проекта |
+| `404 Not Found` | Проект или участник не найден |
+| `409 Conflict` | Действие невозможно в текущем состоянии |
 
-\- `409 Conflict` — действие невозможно в текущем состоянии.
+---
 
+## 12. Project Lifecycle
 
-
-\---
-
-
-
-\## 10.3. Удалить участника из команды
-
-
-
-```http
-
-DELETE /api/projects/{projectId}/members/{userId}
-
-```
-
-
-
-Владелец удаляет участника из команды проекта.
-
-
-
-\### Response — `204 No Content`
-
-
-
-\### Ошибки
-
-
-
-\- `401 Unauthorized` — пользователь не авторизован;
-
-\- `403 Forbidden` — пользователь не является владельцем проекта;
-
-\- `404 Not Found` — проект или участник не найден;
-
-\- `409 Conflict` — действие невозможно в текущем состоянии.
-
-
-
-\---
-
-
-
-\# 11. Project Lifecycle
-
-
-
-Жизненный цикл проекта v1:
-
-
+### 12.1. Основной жизненный цикл
 
 ```text
-
-DRAFT → RECRUITING → IN\_PROGRESS → COMPLETED
-
-&#x20;  \\          \\             \\
-
-&#x20;   └──────────┴─────────────→ CANCELLED
-
+DRAFT → RECRUITING → IN_PROGRESS → COMPLETED
 ```
 
+Проект также может перейти в `CANCELLED`, если отмена разрешена из его текущего состояния.
 
+### 12.2. Открыть набор
 
-Владелец управляет состоянием проекта.
-
-
-
-\## 11.1. Открыть набор
-
-
-
-```http
-
-POST /api/projects/{projectId}/recruiting
-
-```
-
-
+#### `POST /api/projects/{projectId}/recruiting`
 
 Переводит проект из `DRAFT` в `RECRUITING`.
 
+**Доступ:** владелец проекта.
 
-
-\### Response — `200 OK`
-
-
+#### Response — `200 OK`
 
 ```json
-
 {
-
-&#x20; "id": 42,
-
-&#x20; "state": "RECRUITING"
-
+  "id": 42,
+  "state": "RECRUITING"
 }
-
 ```
 
+### 12.3. Начать проект
 
+#### `POST /api/projects/{projectId}/start`
 
-\---
+Переводит проект из `RECRUITING` в `IN_PROGRESS`.
 
+**Доступ:** владелец проекта.
 
+Владелец может начать проект до заполнения всех ролей. После завершения набора оставшиеся `PENDING`-заявки закрываются.
 
-\## 11.2. Начать проект
-
-
-
-```http
-
-POST /api/projects/{projectId}/start
-
-```
-
-
-
-Переводит проект в `IN\_PROGRESS`.
-
-
-
-Владелец может начать проект до заполнения всех ролей.
-
-
-
-При завершении набора оставшиеся `PENDING`-заявки закрываются.
-
-
-
-\### Response — `200 OK`
-
-
+#### Response — `200 OK`
 
 ```json
-
 {
-
-&#x20; "id": 42,
-
-&#x20; "state": "IN\_PROGRESS"
-
+  "id": 42,
+  "state": "IN_PROGRESS"
 }
-
 ```
 
+### 12.4. Завершить проект
 
+#### `POST /api/projects/{projectId}/complete`
 
-\---
+Переводит проект из `IN_PROGRESS` в `COMPLETED`.
 
+**Доступ:** владелец проекта.
 
-
-\## 11.3. Завершить проект
-
-
-
-```http
-
-POST /api/projects/{projectId}/complete
-
-```
-
-
-
-Переводит проект в `COMPLETED`.
-
-
-
-\### Response — `200 OK`
-
-
+#### Response — `200 OK`
 
 ```json
-
 {
-
-&#x20; "id": 42,
-
-&#x20; "state": "COMPLETED"
-
+  "id": 42,
+  "state": "COMPLETED"
 }
-
 ```
 
+### 12.5. Отменить проект
 
+#### `POST /api/projects/{projectId}/cancel`
 
-\---
+Переводит проект в `CANCELLED`, если переход разрешён.
 
-
-
-\## 11.4. Отменить проект
-
-
-
-```http
-
-POST /api/projects/{projectId}/cancel
-
-```
-
-
-
-Переводит проект в `CANCELLED`.
-
-
+**Доступ:** владелец проекта.
 
 Активные `PENDING`-заявки закрываются.
 
-
-
-\### Response — `200 OK`
-
-
+#### Response — `200 OK`
 
 ```json
-
 {
-
-&#x20; "id": 42,
-
-&#x20; "state": "CANCELLED"
-
+  "id": 42,
+  "state": "CANCELLED"
 }
-
 ```
 
-
-
-\### Общие ошибки операций жизненного цикла
-
-
-
-\- `401 Unauthorized` — пользователь не авторизован;
-
-\- `403 Forbidden` — пользователь не является владельцем проекта;
-
-\- `404 Not Found` — проект не найден;
-
-\- `409 Conflict` — переход из текущего состояния проекта недопустим.
-
-
-
-\---
-
-
-
-\# 12. Основные состояния
-
-
-
-\## Project
-
-
-
-```text
-
-DRAFT
-
-RECRUITING
-
-IN\_PROGRESS
-
-COMPLETED
-
-CANCELLED
-
-```
-
-
-
-\## Application
-
-
-
-```text
-
-PENDING
-
-ACCEPTED
-
-REJECTED
-
-WITHDRAWN
-
-CLOSED
-
-```
-
-
-
-\## Skill Level
-
-
-
-```text
-
-Beginner
-
-Intermediate
-
-Advanced
-
-```
-
-
-
-\---
-
-
-
-\# 13. Ключевые бизнес-ограничения API v1
-
-
-
-1\. `Application` и `Membership` являются разными сущностями.
-
-2\. Подача заявки не занимает место в роли.
-
-3\. Место в `capacity` занимает только принятый участник (`Membership`).
-
-4\. При принятии заявки backend повторно проверяет доступность места.
-
-5\. Один пользователь не может создать несколько заявок на одну и ту же роль.
-
-6\. Пользователь может подаваться на разные роли одного проекта.
-
-7\. После принятия пользователя на одну роль остальные его `PENDING`-заявки в этом проекте закрываются.
-
-8\. В v1 повторная заявка на ту же роль после `REJECTED`, `WITHDRAWN` или `CLOSED` не создаётся.
-
-9\. После появления заявок ключевые требования роли не должны изменяться.
-
-10\. `capacity` роли нельзя уменьшить ниже количества уже принятых участников.
-
-11\. Владелец проекта хранится отдельно и автоматически не занимает место в роли.
-
-12\. Владелец может начать проект до заполнения всех ролей.
-
-13\. При завершении набора оставшиеся `PENDING`-заявки закрываются.
-
-14\. Matching является рекомендательным и объяснимым.
-
-15\. В v1 matching не использует ML и не рассчитывает процент соответствия.
-
-16\. Контакт между участниками после формирования команды осуществляется через указанные внешние контактные данные; встроенный чат не входит в v1.
-
-
-
-\---
-
-
-
-\# 14. Границы API Contracts v1
-
-
-
-В текущую версию API Contracts не входят:
-
-
-
-\- встроенный чат;
-
-\- Telegram-автоматизация;
-
-\- система рейтинга и репутации;
-
-\- анализ токсичности и sentiment analysis;
-
-\- ML-рекомендации;
-
-\- сложный процентный matching;
-
-\- автоматические skill tests;
-
-\- внутренняя система задач и milestones;
-
-\- расширенная система уведомлений.
-
-
-
-Эти возможности могут быть добавлены в следующих версиях после стабилизации основного сценария TeamFinder.
-
+#### Общие ошибки lifecycle-операций
+
+| Код | Причина |
+|---|---|
+| `401 Unauthorized` | Пользователь не авторизован |
+| `403 Forbidden` | Пользователь не является владельцем проекта |
+| `404 Not Found` | Проект не найден |
+| `409 Conflict` | Переход из текущего состояния недопустим |
+
+---
+
+## 13. Состояния системы
+
+### 13.1. Project State
+
+| State | Значение |
+|---|---|
+| `DRAFT` | Проект создаётся и настраивается |
+| `RECRUITING` | Открыт набор участников |
+| `IN_PROGRESS` | Проект выполняется |
+| `COMPLETED` | Проект завершён |
+| `CANCELLED` | Проект отменён |
+
+### 13.2. Application Status
+
+| Status | Значение |
+|---|---|
+| `PENDING` | Заявка ожидает решения |
+| `ACCEPTED` | Кандидат принят |
+| `REJECTED` | Заявка отклонена |
+| `WITHDRAWN` | Кандидат отозвал заявку |
+| `CLOSED` | Заявка автоматически закрыта |
+
+### 13.3. Skill Level
+
+| Level | Значение |
+|---|---|
+| `Beginner` | Начальный |
+| `Intermediate` | Средний |
+| `Advanced` | Продвинутый |
+
+---
+
+## 14. Ключевые бизнес-правила
+
+| № | Правило |
+|---:|---|
+| 1 | `Application` и `Membership` являются разными сущностями |
+| 2 | Подача заявки не занимает место в роли |
+| 3 | Место в `capacity` занимает только принятый участник (`Membership`) |
+| 4 | При принятии заявки backend повторно проверяет наличие свободного места |
+| 5 | Один пользователь не может создать несколько заявок на одну роль |
+| 6 | Пользователь может подаваться на разные роли одного проекта |
+| 7 | После принятия пользователя на одну роль остальные его `PENDING`-заявки в этом проекте закрываются |
+| 8 | В v1 повторная заявка на ту же роль после `REJECTED`, `WITHDRAWN` или `CLOSED` не создаётся |
+| 9 | После появления заявок ключевые требования роли блокируются от изменения |
+| 10 | `capacity` нельзя уменьшить ниже количества уже принятых участников |
+| 11 | Владелец проекта хранится отдельно и автоматически не занимает место в роли |
+| 12 | Владелец может начать проект до заполнения всех ролей |
+| 13 | После завершения набора оставшиеся `PENDING`-заявки закрываются |
+| 14 | Matching является рекомендательным и объяснимым |
+| 15 | Matching v1 не использует ML и не рассчитывает процент соответствия |
+| 16 | Для коммуникации участников используются внешние контактные данные; встроенный чат не входит в v1 |
+
+---
+
+## 15. Границы API Contracts v1
+
+| Возможность | Статус |
+|---|---|
+| Встроенный чат | Future |
+| Telegram-автоматизация | Future |
+| Система рейтинга и репутации | Future |
+| Анализ токсичности / sentiment analysis | Future |
+| ML-рекомендации | Future |
+| Сложный процентный matching | Future |
+| Автоматические skill tests | Future |
+| Внутренние tasks / milestones | Future |
+| Расширенная система уведомлений | Future |
+
+---
+
+## 16. Примечание по согласованию
+
+После подготовки ERD v1 названия сущностей и полей API должны быть сверены с моделью данных.
+
+При расхождениях между API Contracts v1, ERD v1, Use Cases v1 и UI Design v1 изменения согласуются отдельным commit / Pull Request.

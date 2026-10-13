@@ -15,7 +15,7 @@ erDiagram
     ROLE_TYPE ||--o{ USER_ROLE_INTEREST : selected_as
 
     USER ||--o{ PROJECT : owns
-    PROJECT ||--|{ PROJECT_ROLE : defines
+    PROJECT ||--o{ PROJECT_ROLE : defines
     ROLE_TYPE ||--o{ PROJECT_ROLE : classifies
     PROJECT_ROLE ||--o{ ROLE_SKILL_REQUIREMENT : requires
     SKILL ||--o{ ROLE_SKILL_REQUIREMENT : required_skill

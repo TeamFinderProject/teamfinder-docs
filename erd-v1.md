@@ -1,32 +1,32 @@
-# TeamFinder v1 — ERD и модель данных
+# TeamFinder v1 — ER-диаграмма и модель данных
 
-**Статус:** Draft — на командное review  
-**Основа:** функциональные и бизнес-требования TeamFinder v1; PostgreSQL / EF Core  
-**Область:** только сущности и поведение, необходимые для v1.
+**Статус:** Черновик — ожидает командной проверки  
+**Основа:** функциональные и бизнес-требования TeamFinder v1; PostgreSQL / Entity Framework Core  
+**Область:** только сущности и правила, необходимые для первой версии.
 
 ## 1. Принципиальная ERD
 
 ```mermaid
 erDiagram
-    USER ||--|| PROFILE : has
-    USER ||--o{ USER_SKILL : lists
-    SKILL ||--o{ USER_SKILL : assigned_to
-    USER ||--o{ USER_ROLE_INTEREST : interested_in
-    ROLE_TYPE ||--o{ USER_ROLE_INTEREST : selected_as
+    USER ||--|| PROFILE : имеет
+    USER ||--o{ USER_SKILL : указывает
+    SKILL ||--o{ USER_SKILL : назначается
+    USER ||--o{ USER_ROLE_INTEREST : интересуется
+    ROLE_TYPE ||--o{ USER_ROLE_INTEREST : выбран
 
-    USER ||--o{ PROJECT : owns
-    PROJECT ||--o{ PROJECT_ROLE : defines
-    ROLE_TYPE ||--o{ PROJECT_ROLE : classifies
-    PROJECT_ROLE ||--o{ ROLE_SKILL_REQUIREMENT : requires
-    SKILL ||--o{ ROLE_SKILL_REQUIREMENT : required_skill
+    USER ||--o{ PROJECT : владеет
+    PROJECT ||--o{ PROJECT_ROLE : содержит
+    ROLE_TYPE ||--o{ PROJECT_ROLE : определяет_тип
+    PROJECT_ROLE ||--o{ ROLE_SKILL_REQUIREMENT : требует
+    SKILL ||--o{ ROLE_SKILL_REQUIREMENT : требуемый_навык
 
-    USER ||--o{ APPLICATION : submits
-    PROJECT_ROLE ||--o{ APPLICATION : receives
-    PROJECT ||--o{ APPLICATION : scopes
+    USER ||--o{ APPLICATION : подаёт
+    PROJECT_ROLE ||--o{ APPLICATION : получает
+    PROJECT ||--o{ APPLICATION : относится_к
 
-    USER ||--o{ MEMBERSHIP : participates
-    PROJECT ||--o{ MEMBERSHIP : has_members
-    PROJECT_ROLE ||--o{ MEMBERSHIP : fills
+    USER ||--o{ MEMBERSHIP : участвует
+    PROJECT ||--o{ MEMBERSHIP : включает
+    PROJECT_ROLE ||--o{ MEMBERSHIP : занимает_место
 
     USER {
         bigint id PK
@@ -108,9 +108,9 @@ erDiagram
     }
 ```
 
-### Кардинальности
+### Связи и кардинальности
 
-- `User` — `Profile`: **1:1**. Профиль принадлежит ровно одному пользователю; `Profile.user_id` одновременно PK и FK.
+- `User` — `Profile`: **1:1**. Профиль принадлежит ровно одному пользователю; `Profile.user_id` одновременно первичный и внешний ключ.
 - `User` — `Skill`: **M:N** через `UserSkill`. Для пары пользователь/навык хранится одна запись.
 - `User` — `RoleType`: **M:N** через `UserRoleInterest`. Интерес к одному типу роли не дублируется.
 - `User` — `Project`: **1:N** по владению. Каждый проект имеет одного владельца; владелец не считается участником автоматически.
@@ -119,27 +119,27 @@ erDiagram
 - `User` — `ProjectRole`: **M:N** через `Application` для подачи заявок; одна заявка на пару пользователь/роль за всё время жизни роли.
 - `User` — `Project`: **M:N** через `Membership`; не более одного членства пользователя в одном проекте.
 
-## 2. Сущности и поля
+## 2. Сущности и их поля
 
-Поля ниже — минимальная рекомендуемая схема v1. Имена приведены в стиле PostgreSQL/EF Core; типы уточняются в миграциях.
+Ниже приведён минимальный рекомендуемый состав полей для первой версии. Имена записаны в стиле PostgreSQL и Entity Framework Core; окончательные типы задаются при создании миграций.
 
 | Сущность | Основные поля | Ключи и ограничения |
 |---|---|---|
-| `User` | `id`, `email`, `password_hash`, `created_at` | PK `id`; UNIQUE `email`; пароль хранить только как безопасный хеш. |
-| `Profile` | `user_id`, `display_name`, `bio`, `github_url`, `portfolio_url`, `updated_at` | PK и FK `user_id → User.id`; обеспечивает связь 1:1. Поля ссылок могут быть NULL. |
+| `User` | `id`, `email`, `password_hash`, `created_at` | первичный ключ `id`; UNIQUE `email`; пароль хранить только как безопасный хеш. |
+| `Profile` | `user_id`, `display_name`, `bio`, `github_url`, `portfolio_url`, `updated_at` | первичный и внешний ключ `user_id → User.id`; обеспечивает связь 1:1. Поля ссылок могут быть NULL. |
 | `Skill` | `id`, `name`, `description` | PK `id`; UNIQUE нормализованного названия `name`. Справочник ведётся командой. |
 | `RoleType` | `id`, `name`, `description` | PK `id`; UNIQUE нормализованного `name`. Справочник ведётся командой. |
-| `UserSkill` | `user_id`, `skill_id`, `level`, `created_at` | Составной PK (`user_id`, `skill_id`); оба поля — FK; `level` ограничить допустимым набором уровней. |
+| `UserSkill` | `user_id`, `skill_id`, `level`, `created_at` | Составной первичный ключ (`user_id`, `skill_id`); оба поля — внешние ключи; `level` ограничить допустимым набором уровней. |
 | `UserRoleInterest` | `user_id`, `role_type_id`, `created_at` | Составной PK (`user_id`, `role_type_id`); оба поля — FK. |
-| `Project` | `id`, `owner_id`, `title`, `description`, `status`, `external_contact_url`, `created_at`, `updated_at` | PK `id`; FK `owner_id → User.id`; CHECK статуса. `owner_id` обязателен. |
-| `ProjectRole` | `id`, `project_id`, `role_type_id`, `title`, `description`, `capacity`, `created_at` | PK `id`; FK на проект и тип роли; CHECK `capacity > 0`; UNIQUE (`id`, `project_id`) для составных FK. |
-| `RoleSkillRequirement` | `project_role_id`, `skill_id`, `requirement_type`, `minimum_level` | Составной PK (`project_role_id`, `skill_id`); FK на роль и навык; CHECK `requirement_type IN ('Required','NiceToHave')`; `minimum_level` NULL либо в допустимом диапазоне. |
-| `Application` | `id`, `user_id`, `project_id`, `project_role_id`, `status`, `closure_reason`, `message`, `created_at`, `decided_at` | PK `id`; FK на пользователя; составной FK (`project_role_id`, `project_id`) на роль; UNIQUE (`user_id`, `project_role_id`); CHECK статуса и причины закрытия. |
+| `Project` | `id`, `owner_id`, `title`, `description`, `status`, `external_contact_url`, `created_at`, `updated_at` | PK `id`; внешний ключ `owner_id → User.id`; проверка допустимых состояний. `owner_id` обязателен. |
+| `ProjectRole` | `id`, `project_id`, `role_type_id`, `title`, `description`, `capacity`, `created_at` | PK `id`; внешние ключи на проект и тип роли; проверка `capacity > 0`; UNIQUE (`id`, `project_id`) для составных FK. |
+| `RoleSkillRequirement` | `project_role_id`, `skill_id`, `requirement_type`, `minimum_level` | Составной PK (`project_role_id`, `skill_id`); внешние ключи на роль и навык; CHECK `requirement_type IN ('Required','NiceToHave')`; `minimum_level` NULL либо в допустимом диапазоне. |
+| `Application` | `id`, `user_id`, `project_id`, `project_role_id`, `status`, `closure_reason`, `message`, `created_at`, `decided_at` | PK `id`; внешний ключ на пользователя; составной внешний ключ (`project_role_id`, `project_id`) на роль; UNIQUE (`user_id`, `project_role_id`); CHECK статуса и причины закрытия. |
 | `Membership` | `id`, `user_id`, `project_id`, `project_role_id`, `joined_at` | PK `id`; FK на пользователя; составной FK (`project_role_id`, `project_id`) на роль; UNIQUE (`user_id`, `project_id`). |
 
-## 3. PostgreSQL DDL — ключевые ограничения
+## 3. Пример SQL-схемы PostgreSQL — ключевые ограничения
 
-Это эскиз схемы для согласования модели, а не готовая миграция EF Core. Типы времени указаны как `timestamptz`.
+Это предварительный вариант схемы для согласования модели, а не готовая миграция Entity Framework Core. Типы даты и времени указаны как `timestamptz`.
 
 ```sql
 CREATE TABLE "User" (
@@ -241,7 +241,7 @@ CREATE TABLE membership (
 );
 ```
 
-## 4. Бизнес-правила, которые схема должна обеспечивать
+## 4. Бизнес-правила, которые должна обеспечивать схема
 
 1. **Заявка не занимает место.** Количество занятых мест вычисляется по `Membership` для конкретного `ProjectRole`, а не по `Application`.
 2. **Не более одной заявки на роль.** UNIQUE (`Application.user_id`, `Application.project_role_id`) запрещает повторную заявку независимо от её конечного статуса.
@@ -255,7 +255,7 @@ CREATE TABLE membership (
 10. **Профиль 1:1.** Создание `User` и `Profile` должно согласованно обрабатываться приложением, если профили обязательны после регистрации.
 11. **Владение отдельно от членства.** `Project.owner_id` не создаёт запись `Membership` автоматически.
 
-## 5. Ограничения, которые нельзя выразить одними FK/UNIQUE/CHECK
+## 5. Ограничения, которые нельзя выразить только внешними ключами, уникальностью и проверками
 
 - Вместимость `ProjectRole.capacity` — проверять в сервисе внутри транзакции (или триггером), защищая от одновременного принятия заявок.
 - Допустимость подачи/принятия заявки зависит от статуса проекта и роли; проверять при каждой операции в сервисе внутри транзакции.
@@ -263,9 +263,9 @@ CREATE TABLE membership (
 - Закрытие остальных ожидающих заявок при принятии, заполнении роли или закрытии набора — транзакционная бизнес-операция.
 - Значения `level` в DDL — предлагаемая шкала. Согласовать её с командой до реализации; не считать названия уровней окончательными без подтверждения.
 
-## 6. Решения, требующие подтверждения на review
+## 6. Решения, требующие подтверждения при проверке
 
-- Подтвердить шкалу навыков `Beginner / Intermediate / Advanced / Expert` и nullable `minimum_level`.
+- Подтвердить шкалу навыков `Beginner / Intermediate / Advanced / Expert` и необязательное поле `minimum_level`.
 - Подтвердить состав полей профиля и необходимость хранить `external_contact_url` на уровне проекта.
 - Подтвердить, что закрытые заявки хранят одну из причин `AcceptedAnotherRole`, `RoleFilled`, `RecruitmentClosed`, `ProjectCancelled`.
 - Подтвердить, что `RoleType` используется и для интересов пользователя, и для классификации роли проекта.
@@ -273,8 +273,8 @@ CREATE TABLE membership (
 
 ## 7. Связь с остальными документами
 
-- `teamfinder-v1-requirements.md` — статусы, заявки, вместимость и правила членства.
+- `teamfinder-v1-requirements.md` — состояния проекта и заявки, вместимость ролей и правила членства.
 - `business-requirements.md` — пользовательские сценарии и бизнес-ограничения.
-- `architecture-v1.md` — PostgreSQL и Entity Framework Core.
+- `architecture-v1.md` — архитектура, PostgreSQL и Entity Framework Core.
 
-Эта ERD является принципиальной моделью v1 и должна пройти продуктовый/технический review до использования как окончательная схема миграций.
+Эта ER-диаграмма является концептуальной моделью первой версии. До использования её как окончательной схемы миграций необходимо получить продуктовое и техническое одобрение команды.

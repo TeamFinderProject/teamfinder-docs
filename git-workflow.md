@@ -34,7 +34,7 @@ gitGraph
 | `fix/<коротко>` | Исправление ошибки | Автор |
 | `docs/<коротко>` | Изменение документации | Автор |
 
-Ветки, созданные через `git worktree` (в том числе агентом), — обычные feature-ветки: они вливаются в `develop` через PR, а потом удаляются. Worktree — это только вторая рабочая папка для той же ветки, а не способ хранить изменения.
+Ветки, созданные через `git worktree`, проходят тот же процесс: PR в `develop`, review и merge. Worktree — дополнительная рабочая папка того же репозитория, обычно с отдельной веткой. Изменения в ней тоже нужно коммитить.
 
 ### Про слэш в названии ветки
 
@@ -59,46 +59,21 @@ Issue → Assignee → ветка от develop → коммиты → PR в deve
 6. После merge ветка удаляется (кнопка «Delete branch» в PR).
 7. Перед checkpoint: PR `develop → main` и тег версии: `v0.3` для checkpoint 3 (MVP), `v1.0` для защиты.
 
-## 4. Наведение порядка (один раз, перед checkpoint 3)
+## 4. Проверка веток перед checkpoint 3
 
-Выполняет Участник 1.
-
-### teamfinder-backend
+Выполняет Участник 1. Перед изменениями обновить сведения о ветках:
 
 ```bash
-git fetch --all --prune
-git switch main && git pull
-git switch -c develop && git push -u origin develop
-
-# Не влиты в main: migration/teamfinder-schema-v2 и feature/database-skeleton-integration.
-# Их содержимое (тип проекта, история участия, три уровня навыков) полностью вошло
-# в новую модель данных checkpoint 3, поэтому ветки закрываются без merge.
-# feature/backend-skeleton и feature/initial-postgres-efcore-schema уже влиты (PR #3, #4).
-git push origin --delete migration/teamfinder-schema-v2 feature/backend-skeleton \
-  feature/database-skeleton-integration feature/initial-postgres-efcore-schema
+git fetch origin --prune
+git branch -r
+git branch -r --merged origin/develop
 ```
 
-### teamfinder-docs
-
-```bash
-git fetch --all --prune
-git switch main && git pull
-git switch -c develop && git push -u origin develop
-# docs/architecture-v1 содержит один невлитый коммит «привести Architecture v1 к единому формату»;
-# он заменён новой версией architecture-v1.md, ветку закрываем без merge.
-# Остальные docs/* ветки уже влиты (PR #10, #11, #13, #14, #15).
-git push origin --delete docs/api-contracts-v1 docs/architecture-v1 docs/business-requirements \
-  docs/roadmap-v1 docs/teamfinder-v1-requirements-review docs/ui-design
-```
-
-### teamfinder-frontend
-
-```bash
-git fetch --all --prune
-git switch main && git pull
-git switch -c develop && git push -u origin develop
-git push origin --delete feature/frontend-skeleton
-```
+- Если `develop` уже существует, повторно создавать её не нужно. Новые задачи начинаются от актуальной `develop`.
+- Ветки со слитыми PR можно удалить после проверки целевой ветки.
+- Невлитую ветку нельзя удалять только потому, что подготовлены новые файлы. Сначала сравнить изменения, договориться с автором и проверить, что нужная работа сохранена.
+- Общую `feature/checkpoint-3-backend` сохраняем до добавления частей обоих участников, проверок и merge общего PR. Каждый участник делает собственные коммиты.
+- Документация и frontend DevOps идут отдельными PR. Слияние этих PR не означает завершения общей backend-задачи или экранов frontend.
 
 ### Настройки GitHub (Settings → Branches)
 

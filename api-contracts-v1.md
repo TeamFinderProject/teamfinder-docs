@@ -1,1170 +1,912 @@
 # API Contracts v1
 
-**Статус:** v1 (для первого чекпоинта)  
-**Владелец документа:** Участник 1 (Team Lead / Backend / DevOps)  
-**Reviewer:** Участник 2 (PM / System Analyst)
-
-**Связанные документы:**
-- `architecture-v1.md`
-- `use-cases.md`
-- `ui-design.md`
-
----
+- Версия: 1.1, после checkpoint 2
+- Владелец: Участник 1 (Team Lead / Backend)
+- Reviewer: Участник 2 (System Analyst), Участник 3 (Frontend)
+- Машиночитаемый контракт: [`openapi.yaml`](openapi.yaml) — открывается в Swagger UI
+- Связанные документы: [`adr-001-authentication.md`](adr-001-authentication.md), [`business-rules.md`](business-rules.md), [`erd-v1.md`](erd-v1.md), [`ui-design.md`](ui-design.md)
 
 ## 1. Назначение
 
-API Contracts v1 фиксирует соглашение между frontend и backend TeamFinder.
+Контракт — это наш артефакт: frontend и backend оба от него зависят. Frontend отправляет запросы так, как здесь описано, backend так их и обрабатывает. Если что-то надо поменять, сначала правим этот документ (через Pull Request в `teamfinder-docs`), а потом код.
 
-Документ определяет:
+```mermaid
+flowchart LR
+    C[["API Contract<br/>api-contracts-v1.md + openapi.yaml"]]
+    FE[Frontend] -- зависит от --> C
+    BE[Backend Controllers] -- реализует --> C
+```
 
-- HTTP-методы и URL endpoint'ов;
-- входные данные запросов;
-- форматы успешных ответов;
-- основные HTTP-коды ошибок;
-- требования к авторизации;
-- бизнес-правила, влияющие на поведение API.
-
-Контракты описывают внешний интерфейс backend и не являются описанием его внутренней реализации.
-
----
+То же самое в формате OpenAPI лежит в `openapi.yaml`. Backend показывает его в Swagger UI (`/swagger`, документ «Контракт»), а рядом — описание, которое Swagger строит по коду («Реализация»). Можно открыть оба и сравнить.
 
 ## 2. Общие соглашения
 
-### 2.1. Базовый префикс
+### 2.1. Базовый префикс и формат
 
-Все endpoint'ы API используют префикс:
+- Все endpoint'ы начинаются с `/api`.
+- Тело запросов и ответов — JSON (`Content-Type: application/json`), имена полей в `camelCase`.
+- Значения перечислений передаются строками в `UPPER_SNAKE_CASE`: `PET_PROJECT`, `IN_PROGRESS`, `NICE_TO_HAVE`.
+- Даты — строки ISO 8601 в UTC: `2026-10-20T12:30:00Z`.
+- Идентификаторы — целые числа (`int64`).
 
-```text
-/api
-```
+### 2.2. Аутентификация
 
-Пример:
+Защищённые endpoint'ы требуют заголовок:
 
 ```http
-GET /api/projects
+Authorization: Bearer <accessToken>
 ```
 
-### 2.2. Формат данных
+Подробно — в разделе 3. Текущий пользователь всегда определяется backend из токена. Frontend никогда не передаёт `userId` и `ownerId` для действий от своего имени.
 
-Основной формат обмена данными между frontend и backend — JSON.
+### 2.3. HTTP-коды
 
-Пример:
-
-```json
-{
-  "title": "TeamFinder",
-  "description": "Сервис для поиска участников в проекты"
-}
-```
-
-### 2.3. Авторизация
-
-Часть endpoint'ов доступна только авторизованным пользователям.
-
-Backend должен определять текущего пользователя на основании данных авторизации. Frontend не передаёт `userId` для операций, выполняемых от имени текущего пользователя.
-
-Конкретный механизм аутентификации (`cookie-based` или `token-based`) фиксируется отдельным техническим решением до начала реализации Auth и интеграции frontend/backend.
-
-До принятия этого решения API Contracts фиксирует правила доступа независимо от механизма аутентификации:
-
-- текущий пользователь определяется backend из контекста аутентификации;
-- frontend не передаёт `userId` для действий от имени текущего пользователя;
-- при отсутствии, истечении или недействительности учётных данных защищённый endpoint возвращает `401 Unauthorized`;
-- `logout` завершает текущую авторизованную сессию в соответствии с выбранным механизмом.
-
-### 2.4. Основные HTTP-коды
-
-| Код | Значение |
+| Код | Когда возвращается |
 |---|---|
-| `200 OK` | Запрос успешно выполнен |
-| `201 Created` | Новый ресурс успешно создан |
-| `204 No Content` | Действие выполнено, тело ответа отсутствует |
-| `400 Bad Request` | Некорректные входные данные |
-| `401 Unauthorized` | Пользователь не аутентифицирован |
-| `403 Forbidden` | Пользователь не имеет прав на действие |
+| `200 OK` | Успешный запрос с телом ответа |
+| `201 Created` | Создан ресурс. В заголовке `Location` — его адрес |
+| `204 No Content` | Действие выполнено, тела нет |
+| `400 Bad Request` | Ошибка валидации входных данных |
+| `401 Unauthorized` | Нет токена, токен истёк или недействителен |
+| `403 Forbidden` | Пользователь аутентифицирован, но прав на действие нет |
 | `404 Not Found` | Ресурс не найден |
-| `409 Conflict` | Операция конфликтует с текущим состоянием системы |
+| `409 Conflict` | Действие противоречит текущему состоянию (бизнес-правило) |
+| `429 Too Many Requests` | Слишком много попыток входа с одного адреса |
 
-### 2.5. Формат ошибки
+### 2.4. Формат ошибки
+
+Все ошибки имеют одну структуру:
 
 ```json
 {
-  "code": "ERROR_CODE",
-  "message": "Описание ошибки"
+  "code": "ROLE_FULL",
+  "message": "Все места на этой роли уже заняты"
 }
 ```
 
-Для ошибок валидации:
+Для ошибок валидации добавляется `errors` — ошибки по полям:
 
 ```json
 {
   "code": "VALIDATION_ERROR",
   "message": "Некорректные входные данные",
   "errors": {
-    "email": [
-      "Некорректный формат email"
-    ]
+    "roles[0].capacity": ["Количество мест должно быть от 1 до 50"]
   }
 }
 ```
 
----
+`code` стабилен, по нему frontend выбирает поведение. `message` — текст для пользователя. Полный перечень кодов — в разделе 14.
 
-## 3. Сводная таблица API
+### 2.5. Пагинация
 
-### 3.1. Auth и Profile
+Каталог возвращает страницу:
 
-| Method | Endpoint | Назначение | Доступ |
-|---|---|---|---|
-| `POST` | `/api/auth/register` | Регистрация | Гость |
-| `POST` | `/api/auth/login` | Вход | Гость |
-| `POST` | `/api/auth/logout` | Выход | Авторизованный |
-| `GET` | `/api/profile` | Получить свой профиль | Авторизованный |
-| `PATCH` | `/api/profile` | Изменить свой профиль | Авторизованный |
+```json
+{ "items": [], "page": 1, "pageSize": 20, "total": 57 }
+```
 
-### 3.2. Dictionaries
+Параметры: `page` (с 1, по умолчанию 1), `pageSize` (1–50, по умолчанию 20).
 
-| Method | Endpoint | Назначение | Доступ |
-|---|---|---|---|
-| `GET` | `/api/skills` | Получить справочник навыков | Авторизованный |
-| `GET` | `/api/role-types` | Получить справочник типов ролей | Авторизованный |
+### 2.6. Правила проектирования URL
 
-### 3.3. Projects и Project Roles
+1. Ресурс адресуется путём. Вложенность пути повторяет принадлежность: роль принадлежит проекту, поэтому `/api/projects/{projectId}/roles/{roleId}`.
+2. Фильтры коллекции — в query-параметрах. `GET /api/projects?type=HACKATHON&skillId=3`. Отдельный объект по id получают не фильтром, а путём: `GET /api/projects/42`.
+3. Данные для создания и изменения — в теле `POST`, `PUT`, `PATCH`.
+4. У `GET` и `DELETE` тела нет. По RFC 9110 (раздел 9.3.5) тело у `DELETE` не имеет определённого смысла: сервер вправе его игнорировать, часть прокси и HTTP-клиентов его отбрасывает, Swagger UI его не отправляет. Поэтому всё, что идентифицирует удаляемый ресурс, передаётся в URL: `DELETE /api/projects/42/members/12`.
+5. Действия, которые меняют состояние по правилам, оформлены как `POST /.../{действие}`: `accept`, `reject`, `withdraw`, `publish`, `start`. Это не изменение поля, а переход с проверками и побочными эффектами, поэтому `PATCH { "status": ... }` не используется.
 
-| Method | Endpoint | Назначение | Доступ |
-|---|---|---|---|
-| `GET` | `/api/projects` | Каталог проектов | Авторизованный |
-| `GET` | `/api/projects/{projectId}` | Просмотр проекта | Авторизованный |
-| `POST` | `/api/projects` | Создать проект | Авторизованный |
-| `PATCH` | `/api/projects/{projectId}` | Изменить проект | Владелец |
-| `POST` | `/api/projects/{projectId}/roles` | Создать роль проекта | Владелец |
-| `PATCH` | `/api/project-roles/{roleId}` | Изменить роль проекта | Владелец |
-| `GET` | `/api/project-roles/{roleId}/match` | Получить matching | Авторизованный |
+## 3. Механизм аутентификации
 
-### 3.4. Applications и Team
+Решение и рассмотренные альтернативы — в [`adr-001-authentication.md`](adr-001-authentication.md). Кратко:
 
-| Method | Endpoint | Назначение | Доступ |
-|---|---|---|---|
-| `POST` | `/api/project-roles/{roleId}/applications` | Подать заявку | Авторизованный |
-| `GET` | `/api/applications/mine` | Получить свои заявки | Авторизованный |
-| `POST` | `/api/applications/{applicationId}/withdraw` | Отозвать заявку | Автор заявки |
-| `GET` | `/api/projects/{projectId}/applications` | Получить заявки проекта | Владелец |
-| `POST` | `/api/applications/{applicationId}/accept` | Принять заявку | Владелец |
-| `POST` | `/api/applications/{applicationId}/reject` | Отклонить заявку | Владелец |
-| `GET` | `/api/projects/{projectId}/team` | Получить команду проекта | Владелец / участник |
-| `POST` | `/api/projects/{projectId}/team/leave` | Покинуть команду | Участник |
-| `DELETE` | `/api/projects/{projectId}/members/{userId}` | Удалить участника | Владелец |
+| Токен | Что это | Срок жизни | Где хранится на клиенте | Как передаётся |
+|---|---|---|---|---|
+| Access token | JWT, подпись HMAC-SHA256. Claims: `sub` (id пользователя), `email`, `jti`, `iat`, `exp`, `iss`, `aud` | 15 минут | В памяти приложения (переменная JS), не в `localStorage` | Заголовок `Authorization: Bearer ...` |
+| Refresh token | Случайные 256 бит (base64url). В БД хранится только SHA-256 хеш | 14 дней | HttpOnly-cookie `tf_refresh`, `Secure`, `SameSite=Strict`, `Path=/api/auth` | Браузер отправляет cookie сам, JS её не видит |
 
-### 3.5. Project Lifecycle
+Правила:
 
-| Method | Endpoint | Назначение | Доступ |
-|---|---|---|---|
-| `POST` | `/api/projects/{projectId}/recruiting` | Открыть набор | Владелец |
-| `POST` | `/api/projects/{projectId}/start` | Начать проект | Владелец |
-| `POST` | `/api/projects/{projectId}/complete` | Завершить проект | Владелец |
-| `POST` | `/api/projects/{projectId}/cancel` | Отменить проект | Владелец |
+- Ротация. Каждый вызов `POST /api/auth/refresh` отзывает текущий refresh token и выдаёт новый в той же цепочке (`familyId`).
+- Обнаружение кражи. Если приходит уже отозванный refresh token, backend отзывает всю цепочку, и пользователю нужно войти заново.
+- Logout отзывает текущий refresh token и удаляет cookie. Access token живёт до истечения своих 15 минут, поэтому срок сделан коротким.
+- Пароли хранятся только как хеш (PBKDF2 через `PasswordHasher` из ASP.NET Core Identity).
+- Флаг `Secure` у cookie включён везде, кроме локальной разработки по `http://localhost` (настройка `Jwt:SecureCookie`), иначе браузер не сохранит cookie без HTTPS.
 
----
+```mermaid
+sequenceDiagram
+    autonumber
+    participant B as Браузер (Frontend)
+    participant A as Backend /api/auth
+    participant D as PostgreSQL
+
+    B->>A: POST /login {email, password}
+    A->>D: найти пользователя, проверить хеш пароля
+    A->>D: сохранить SHA-256(refresh), expiresAt, familyId
+    A-->>B: 200 {accessToken} + Set-Cookie: tf_refresh (HttpOnly)
+    Note over B: accessToken хранится в памяти
+
+    B->>A: GET /api/projects (Authorization: Bearer access)
+    A-->>B: 200
+
+    Note over B: через 15 минут access истёк
+    B->>A: GET /api/projects (истёкший access)
+    A-->>B: 401
+    B->>A: POST /refresh (cookie tf_refresh)
+    A->>D: проверить хеш, срок и отзыв, отозвать старый, сохранить новый
+    A-->>B: 200 {новый accessToken} + новая cookie
+    B->>A: повтор GET /api/projects
+    A-->>B: 200
+```
+
+При перезагрузке страницы access token из памяти теряется, поэтому frontend при старте вызывает `POST /api/auth/refresh`: если cookie жива, сессия восстанавливается без ввода пароля.
 
 ## 4. Auth
 
-### 4.1. Регистрация
+### Сводка
 
-#### `POST /api/auth/register`
+| Method | Endpoint | Назначение | Доступ |
+|---|---|---|---|
+| `POST` | `/api/auth/register` | Регистрация и сразу вход | Гость |
+| `POST` | `/api/auth/login` | Вход | Гость |
+| `POST` | `/api/auth/refresh` | Обновить access token по cookie | Cookie `tf_refresh` |
+| `POST` | `/api/auth/logout` | Выход, отзыв refresh token | Cookie `tf_refresh` |
+| `GET` | `/api/auth/me` | Кто сейчас вошёл | Авторизованный |
 
-Создаёт нового пользователя TeamFinder.
+### 4.1. `POST /api/auth/register`
 
-**Доступ:** гость.
+Создаёт пользователя и пустой профиль одной транзакцией, затем сразу выполняет вход (UC-01: после регистрации пользователь авторизован).
 
-#### Request
-
-| Поле | Тип | Обязательное | Описание |
+| Поле | Тип | Обязательное | Ограничения |
 |---|---|:---:|---|
-| `email` | string | Да | Email пользователя |
-| `password` | string | Да | Пароль пользователя |
-| `displayName` | string | Да | Отображаемое имя |
+| `email` | string | да | формат email, до 320 символов, уникален без учёта регистра |
+| `password` | string | да | 8–128 символов |
+| `displayName` | string | да | 2–100 символов |
+
+```json
+{ "email": "ivan@example.com", "password": "Secret123!", "displayName": "Иван" }
+```
+
+Ответ `201 Created` + `Set-Cookie: tf_refresh=...; HttpOnly; Secure; SameSite=Strict; Path=/api/auth`
 
 ```json
 {
-  "email": "user@example.com",
-  "password": "password",
-  "displayName": "Evgen"
+  "accessToken": "eyJhbGciOiJIUzI1NiIs...",
+  "tokenType": "Bearer",
+  "expiresIn": 900,
+  "user": { "id": 7, "email": "ivan@example.com", "displayName": "Иван" }
 }
 ```
 
-#### Response — `201 Created`
+| HTTP | Код | Причина |
+|---|---|---|
+| `400` | `VALIDATION_ERROR` | Поля не прошли валидацию |
+| `409` | `EMAIL_TAKEN` | Email уже зарегистрирован |
+
+### 4.2. `POST /api/auth/login`
 
 ```json
-{
-  "id": 7,
-  "email": "user@example.com",
-  "displayName": "Evgen"
-}
+{ "email": "ivan@example.com", "password": "Secret123!" }
 ```
 
-#### Ошибки
+Ответ `200 OK` — такой же, как у регистрации, плюс новая cookie.
 
-| Код | Причина |
-|---|---|
-| `400 Bad Request` | Некорректные регистрационные данные |
-| `409 Conflict` | Пользователь с таким email уже существует |
+| HTTP | Код | Причина |
+|---|---|---|
+| `400` | `VALIDATION_ERROR` | Пустые поля |
+| `401` | `INVALID_CREDENTIALS` | Неверный email или пароль. Какое поле неверно — не уточняется |
+| `429` | `TOO_MANY_ATTEMPTS` | Больше 10 попыток входа за минуту с одного IP-адреса (защита от перебора паролей) |
 
-> Пароль не должен храниться в базе данных в открытом виде.
+### 4.3. `POST /api/auth/refresh`
 
----
+Тела нет, refresh token берётся из cookie.
 
-### 4.2. Вход
+Ответ `200 OK` — новый `accessToken` и новая cookie (старый refresh token отозван).
 
-#### `POST /api/auth/login`
+| HTTP | Код | Причина |
+|---|---|---|
+| `401` | `INVALID_REFRESH_TOKEN` | Cookie нет, токен истёк, отозван или использован повторно (тогда отзывается вся цепочка) |
 
-Выполняет аутентификацию пользователя.
+Если две вкладки обновляют токен одновременно, вторая приходит со старым токеном, который первая только что заменила. В течение 30 секунд после замены такой токен ещё принимается и выдаётся новый — пользователя не выкидывает. Позже повторное использование считается кражей.
 
-**Доступ:** гость.
+### 4.4. `POST /api/auth/logout`
 
-#### Request
+Тела нет. Отзывает refresh token из cookie и удаляет cookie. Если cookie нет, всё равно возвращается `204`.
 
-| Поле | Тип | Обязательное | Описание |
-|---|---|:---:|---|
-| `email` | string | Да | Email пользователя |
-| `password` | string | Да | Пароль пользователя |
+Ответ `204 No Content`.
+
+### 4.5. `GET /api/auth/me`
+
+Возвращает пользователя, которому принадлежит access token. Удобно проверить, что токен рабочий, например в Swagger после Authorize. Frontend отдельно его не вызывает: пользователь приходит в ответе `login`, `register` и `refresh`.
 
 ```json
-{
-  "email": "user@example.com",
-  "password": "password"
-}
+{ "id": 7, "email": "ivan@example.com", "displayName": "Иван" }
 ```
 
-#### Response — `200 OK`
-
-```json
-{
-  "user": {
-    "id": 7,
-    "email": "user@example.com",
-    "displayName": "Evgen"
-  }
-}
-```
-
-Данные для поддержания авторизованной сессии зависят от выбранного механизма авторизации.
-
-#### Ошибки
-
-| Код | Причина |
-|---|---|
-| `400 Bad Request` | Некорректный формат запроса |
-| `401 Unauthorized` | Неверный email или пароль |
-
----
-
-### 4.3. Выход
-
-#### `POST /api/auth/logout`
-
-Завершает текущую авторизованную сессию.
-
-**Доступ:** авторизованный пользователь.
-
-#### Response — `204 No Content`
-
----
+Ошибки: `401 UNAUTHORIZED`.
 
 ## 5. Profile
 
-### 5.1. Получить свой профиль
+### 5.1. `GET /api/profile`
 
-#### `GET /api/profile`
-
-Возвращает профиль текущего пользователя.
-
-**Доступ:** авторизованный пользователь.
-
-#### Response — `200 OK`
+Профиль текущего пользователя. Доступ: авторизованный.
 
 ```json
 {
   "id": 7,
-  "displayName": "Evgen",
-  "about": "Backend developer",
-  "interestedRoles": [
-    {
-      "roleTypeId": 1,
-      "name": "Backend Developer"
-    }
-  ],
-  "skills": [
-    {
-      "skillId": 1,
-      "name": "C#",
-      "level": "Intermediate"
-    }
-  ]
+  "email": "ivan@example.com",
+  "displayName": "Иван",
+  "bio": "Backend-разработчик, хочу участвовать в pet-проектах",
+  "githubUrl": "https://github.com/ivan",
+  "portfolioUrl": null,
+  "interestedRoleTypes": [ { "id": 1, "name": "Backend Developer" } ],
+  "skills": [ { "skillId": 11, "name": "Go", "level": "INTERMEDIATE" } ]
 }
 ```
 
-#### Ошибки
+### 5.2. `PUT /api/profile`
 
-| Код | Причина |
-|---|---|
-| `401 Unauthorized` | Пользователь не авторизован |
+Сохраняет форму профиля целиком: экран S-02 отправляет всю форму кнопкой «Сохранить». Списки `interestedRoleTypeIds` и `skills` заменяют текущие.
 
----
-
-### 5.2. Изменить профиль
-
-#### `PATCH /api/profile`
-
-Частично изменяет профиль текущего пользователя.
-
-**Доступ:** авторизованный пользователь.
-
-#### Request
-
-| Поле | Тип | Обязательное | Описание |
+| Поле | Тип | Обязательное | Ограничения |
 |---|---|:---:|---|
-| `displayName` | string | Нет | Отображаемое имя |
-| `about` | string | Нет | Информация о пользователе |
-| `interestedRoleTypeIds` | array | Нет | Интересующие типы ролей |
-| `skills` | array | Нет | Навыки пользователя |
+| `displayName` | string | да | 2–100 символов |
+| `bio` | string \| null | нет | до 2000 символов |
+| `githubUrl` | string \| null | нет | абсолютный http(s) URL |
+| `portfolioUrl` | string \| null | нет | абсолютный http(s) URL |
+| `interestedRoleTypeIds` | int64[] | да (может быть пустым) | id из `/api/role-types`, без повторов |
+| `skills` | `{ skillId, level }[]` | да (может быть пустым) | id из `/api/skills`, навык не повторяется |
 
-```json
-{
-  "displayName": "Evgen",
-  "about": "Backend developer, изучаю ASP.NET Core",
-  "interestedRoleTypeIds": [1],
-  "skills": [
-    {
-      "skillId": 1,
-      "level": "Intermediate"
-    },
-    {
-      "skillId": 2,
-      "level": "Beginner"
-    }
-  ]
-}
-```
+Ответ `200 OK` — обновлённый профиль, как в 5.1.
 
-Допустимые уровни навыков:
+| HTTP | Код | Причина |
+|---|---|---|
+| `400` | `VALIDATION_ERROR` | Некорректные поля |
+| `400` | `DUPLICATE_SKILL` | Один навык указан дважды |
+| `400` | `UNKNOWN_SKILL` / `UNKNOWN_ROLE_TYPE` | Нет такого навыка или типа роли в справочнике |
 
-| Значение | Описание |
-|---|---|
-| `Beginner` | Начальный уровень |
-| `Intermediate` | Средний уровень |
-| `Advanced` | Продвинутый уровень |
+## 6. Справочники
 
-#### Response — `200 OK`
+Справочники наполняет команда (миграция с начальными данными). Пользователи не создают навыки и типы ролей: так в базе не появляются дубликаты вида «C#», «c#», «С Sharp».
 
-Возвращает обновлённый профиль.
-
-#### Ошибки
-
-| Код | Причина |
-|---|---|
-| `400 Bad Request` | Некорректные данные |
-| `401 Unauthorized` | Пользователь не авторизован |
-| `404 Not Found` | Skill или role type не существует |
-| `409 Conflict` | Один skill указан несколько раз |
-
----
-
-## 6. Dictionaries
-
-### 6.1. Получить навыки
-
-#### `GET /api/skills`
-
-Возвращает справочник доступных навыков.
-
-**Доступ:** авторизованный пользователь.
-
-#### Response — `200 OK`
-
-```json
-[
-  {
-    "id": 1,
-    "name": "C#"
-  },
-  {
-    "id": 2,
-    "name": "ASP.NET Core"
-  },
-  {
-    "id": 3,
-    "name": "PostgreSQL"
-  }
-]
-```
-
-### 6.2. Получить типы ролей
-
-#### `GET /api/role-types`
-
-Возвращает справочник типов ролей.
-
-**Доступ:** авторизованный пользователь.
-
-#### Response — `200 OK`
-
-```json
-[
-  {
-    "id": 1,
-    "name": "Backend Developer"
-  },
-  {
-    "id": 2,
-    "name": "Frontend Developer"
-  },
-  {
-    "id": 3,
-    "name": "Designer"
-  }
-]
-```
-
----
+| Method | Endpoint | Ответ | Доступ |
+|---|---|---|---|
+| `GET` | `/api/skills` | `[{ "id": 1, "name": "C#" }, ...]` | Все, включая гостя |
+| `GET` | `/api/role-types` | `[{ "id": 1, "name": "Backend Developer" }, ...]` | Все, включая гостя |
 
 ## 7. Projects
 
-Поле `type` входит в scope TeamFinder v1 и используется в API для создания проекта, отображения проекта и фильтрации каталога.
+### Сводка
 
-Допустимые значения `type` в v1:
+| Method | Endpoint | Назначение | Доступ |
+|---|---|---|---|
+| `GET` | `/api/projects` | Каталог с фильтрами | Авторизованный |
+| `GET` | `/api/projects/mine` | Мои проекты: где я владелец или участник | Авторизованный |
+| `GET` | `/api/projects/{projectId}` | Страница проекта с ролями | Авторизованный |
+| `POST` | `/api/projects` | Создать проект вместе с ролями | Авторизованный |
+| `PATCH` | `/api/projects/{projectId}` | Изменить поля проекта | Владелец |
+| `POST` | `/api/projects/{projectId}/publish` | `DRAFT → RECRUITING` | Владелец |
+| `POST` | `/api/projects/{projectId}/start` | `RECRUITING → IN_PROGRESS` | Владелец |
+| `POST` | `/api/projects/{projectId}/complete` | `IN_PROGRESS → COMPLETED` | Владелец |
+| `POST` | `/api/projects/{projectId}/cancel` | `→ CANCELLED` | Владелец |
 
-| Значение | Описание |
-|---|---|
-| `PET_PROJECT` | Pet-проект |
-| `HACKATHON` | Хакатон |
-| `STUDY_PROJECT` | Учебный проект |
+Типы проекта: `PET_PROJECT`, `HACKATHON`, `STUDY_PROJECT`. Тип — классификация для фильтра каталога. Поведение системы от типа не зависит, наследования нет.
 
-ERD и backend-модель `Project` должны содержать соответствующее поле или справочник. API Contracts фиксирует внешнее имя поля как `type`; конкретный способ хранения внутри БД (`enum`, строка или справочник) относится к реализации.
+### 7.1. `GET /api/projects` — каталог
 
-### 7.1. Получить каталог проектов
+| Параметр | Тип | Описание |
+|---|---|---|
+| `q` | string | Поиск по названию и описанию |
+| `type` | `ProjectType` | Тип проекта |
+| `roleTypeId` | int64 | В проекте есть роль этого типа |
+| `skillId` | int64 | Хотя бы одна роль требует этот навык |
+| `openOnly` | boolean | Только `RECRUITING` и хотя бы одна роль со свободными местами |
+| `page`, `pageSize` | int | Пагинация (2.5) |
 
-#### `GET /api/projects`
-
-Возвращает проекты, доступные в каталоге.
-
-**Доступ:** авторизованный пользователь.
-
-#### Query parameters
-
-| Параметр | Тип | Обязательный | Описание |
-|---|---|:---:|---|
-| `type` | string | Нет | Фильтр по типу проекта |
-| `skillId` | integer | Нет | Фильтр по требуемому навыку |
-
-Пример:
-
-```http
-GET /api/projects?type=PET_PROJECT&skillId=1
-```
-
-#### Response — `200 OK`
+Черновики (`DRAFT`) в каталоге не показываются. Фильтры комбинируются через «И».
 
 ```json
-[
-  {
-    "id": 42,
-    "title": "TeamFinder",
-    "description": "Сервис для поиска участников в проекты",
-    "type": "PET_PROJECT",
-    "state": "RECRUITING"
-  }
-]
+{
+  "items": [
+    {
+      "id": 42,
+      "title": "TeamFinder",
+      "description": "Сервис поиска участников и формирования команд",
+      "type": "STUDY_PROJECT",
+      "state": "RECRUITING",
+      "owner": { "id": 7, "displayName": "Иван" },
+      "roles": [
+        { "id": 15, "roleTypeId": 1, "title": "Backend Developer", "capacity": 2, "occupied": 1, "isClosed": false }
+      ]
+    }
+  ],
+  "page": 1,
+  "pageSize": 20,
+  "total": 1
+}
 ```
 
----
+`GET /api/projects/mine` возвращает массив карточек того же вида, включая черновики владельца, с двумя дополнительными полями: `myRelation` (`OWNER` или `MEMBER`) и `pendingApplications` — сколько заявок ждут решения (только для владельца, у участника `null`). По нему на экране «Мои проекты» видно, где есть новые заявки (BR-26).
 
-### 7.2. Получить проект
+### 7.2. `GET /api/projects/{projectId}`
 
-#### `GET /api/projects/{projectId}`
-
-Возвращает информацию о проекте и его ролях.
-
-**Доступ:** авторизованный пользователь.
-
-#### Response — `200 OK`
+Возвращает проект, его роли и отношение текущего пользователя к проекту. `externalContactUrl` заполнен только для владельца и действующих участников, остальным приходит `null`: контакт виден только команде.
 
 ```json
 {
   "id": 42,
   "title": "TeamFinder",
-  "description": "Сервис для поиска участников в проекты",
-  "type": "PET_PROJECT",
+  "description": "Сервис поиска участников и формирования команд",
+  "type": "STUDY_PROJECT",
   "state": "RECRUITING",
-  "owner": {
-    "id": 7,
-    "displayName": "Evgen"
-  },
+  "externalContactUrl": null,
+  "owner": { "id": 7, "displayName": "Иван" },
+  "createdAt": "2026-10-20T10:00:00Z",
+  "myRelation": "NONE",
+  "myApplications": [ { "applicationId": 101, "roleId": 17, "status": "PENDING" } ],
   "roles": [
     {
       "id": 15,
-      "name": "Backend Developer",
-      "capacity": 1,
-      "acceptedCount": 0
+      "roleTypeId": 1,
+      "roleTypeName": "Backend Developer",
+      "title": "Backend Developer",
+      "description": "Реализация API и бизнес-логики",
+      "capacity": 2,
+      "occupied": 1,
+      "isClosed": false,
+      "requirementsLocked": true,
+      "requirements": [
+        { "skillId": 11, "skillName": "Go", "type": "REQUIRED", "minimumLevel": "INTERMEDIATE" },
+        { "skillId": 12, "skillName": "Redis", "type": "NICE_TO_HAVE", "minimumLevel": null }
+      ]
     }
   ]
 }
 ```
 
-#### Ошибки
+`myRelation`: `OWNER`, `MEMBER` или `NONE`. `requirementsLocked = true`, если на роль уже подавали заявки: тогда тип роли и навыки менять нельзя.
 
-| Код | Причина |
-|---|---|
-| `401 Unauthorized` | Пользователь не авторизован |
-| `404 Not Found` | Проект не найден |
+| HTTP | Код | Причина |
+|---|---|---|
+| `404` | `NOT_FOUND` | Проекта нет, либо это чужой черновик |
 
----
+### 7.3. `POST /api/projects` — создать проект вместе с ролями
 
-### 7.3. Создать проект
+На экране S-05 всё заполняется в одной форме: название, описание, тип, контакт команды и роли с навыками. Кнопка «Создать проект» отправляет один запрос. Backend сохраняет проект, роли и требования к навыкам в одной транзакции — либо сохранится всё, либо ничего. Так не получится проекта, у которого создалась только половина ролей.
 
-#### `POST /api/projects`
+Текущий пользователь становится владельцем. Начальное состояние — `DRAFT`. Если передать `"publish": true`, проект после создания сразу переходит в `RECRUITING` (нужна хотя бы одна роль).
 
-Создаёт новый проект.
+Тело запроса
 
-**Доступ:** авторизованный пользователь.
-
-Текущий пользователь автоматически становится владельцем проекта. Начальное состояние — `DRAFT`.
-
-#### Request
-
-| Поле | Тип | Обязательное | Описание |
+| Поле | Тип | Обязательное | Ограничения |
 |---|---|:---:|---|
-| `title` | string | Да | Название проекта |
-| `description` | string | Да | Описание проекта |
-| `type` | string | Да | Тип проекта: `PET_PROJECT`, `HACKATHON` или `STUDY_PROJECT` |
+| `title` | string | да | 3–200 символов |
+| `description` | string | да | 10–5000 символов |
+| `type` | `ProjectType` | да | `PET_PROJECT`, `HACKATHON`, `STUDY_PROJECT` |
+| `externalContactUrl` | string \| null | нет | абсолютный http(s) URL, например `https://t.me/teamfinder_dev` |
+| `publish` | boolean | нет | по умолчанию `false` |
+| `roles` | `RoleInput[]` | нет | 0–20 ролей. Для `publish: true` — минимум 1 |
+
+`RoleInput` — то же тело, что у `POST /api/projects/{projectId}/roles`:
+
+| Поле | Тип | Обязательное | Ограничения |
+|---|---|:---:|---|
+| `roleTypeId` | int64 | да | id из `/api/role-types` |
+| `title` | string \| null | нет | до 150 символов. Если пусто — берётся название типа роли |
+| `description` | string \| null | нет | до 2000 символов |
+| `capacity` | int | да | 1–50 |
+| `requirements` | `{ skillId, type, minimumLevel }[]` | нет | `type`: `REQUIRED` или `NICE_TO_HAVE`; `minimumLevel` необязателен; навык не повторяется в пределах роли, поэтому не может быть одновременно обязательным и желательным |
 
 ```json
 {
   "title": "TeamFinder",
-  "description": "Сервис для поиска участников в проекты",
-  "type": "PET_PROJECT"
+  "description": "Сервис поиска участников и формирования команд для учебных проектов",
+  "type": "STUDY_PROJECT",
+  "externalContactUrl": "https://t.me/teamfinder_dev",
+  "publish": false,
+  "roles": [
+    {
+      "roleTypeId": 1,
+      "description": "Реализация API и бизнес-логики",
+      "capacity": 2,
+      "requirements": [
+        { "skillId": 1, "type": "REQUIRED", "minimumLevel": "INTERMEDIATE" },
+        { "skillId": 3, "type": "REQUIRED", "minimumLevel": "BEGINNER" },
+        { "skillId": 9, "type": "NICE_TO_HAVE" }
+      ]
+    },
+    {
+      "roleTypeId": 4,
+      "title": "UI/UX дизайнер",
+      "capacity": 1,
+      "requirements": [ { "skillId": 13, "type": "REQUIRED" } ]
+    }
+  ]
 }
 ```
 
-#### Response — `201 Created`
+Ответ `201 Created`, заголовок `Location: /api/projects/42`, тело — как в 7.2.
 
-```json
-{
-  "id": 42,
-  "title": "TeamFinder",
-  "description": "Сервис для поиска участников в проекты",
-  "type": "PET_PROJECT",
-  "state": "DRAFT",
-  "ownerId": 7
-}
+| HTTP | Код | Причина |
+|---|---|---|
+| `400` | `VALIDATION_ERROR` | Поля проекта или ролей некорректны (путь поля в `errors`, например `roles[1].capacity`) |
+| `400` | `UNKNOWN_SKILL` / `UNKNOWN_ROLE_TYPE` | Ссылка на несуществующую запись справочника |
+| `400` | `DUPLICATE_SKILL` | Навык повторяется внутри одной роли |
+| `409` | `PROJECT_HAS_NO_ROLES` | `publish: true` без ролей |
+
+Последовательность на backend
+
+```mermaid
+sequenceDiagram
+    participant FE as Frontend (S-05)
+    participant C as ProjectsController
+    participant S as ProjectService
+    participant DB as PostgreSQL
+
+    FE->>C: POST /api/projects {проект + roles[]}
+    C->>C: валидация DTO (400 при ошибке)
+    C->>S: CreateAsync(currentUserId, request)
+    S->>DB: проверить, что все skillId и roleTypeId существуют
+    S->>DB: BEGIN
+    S->>DB: INSERT projects (OwnerId из токена, Status = Draft)
+    S->>DB: INSERT project_roles (для каждой роли)
+    S->>DB: INSERT role_skill_requirements
+    opt publish = true
+        S->>DB: UPDATE projects SET Status = Recruiting
+    end
+    S->>DB: COMMIT
+    S-->>C: ProjectDetails
+    C-->>FE: 201 Created + Location
 ```
 
----
+### 7.4. `PATCH /api/projects/{projectId}`
 
-### 7.4. Изменить проект
+Частичное изменение: передаются только изменяемые поля. Роли меняются своими endpoint'ами (раздел 8).
 
-#### `PATCH /api/projects/{projectId}`
-
-Изменяет основные данные проекта.
-
-**Доступ:** владелец проекта.
-
-#### Request
-
-```json
-{
-  "title": "TeamFinder v1",
-  "description": "Обновлённое описание проекта"
-}
-```
-
-#### Ошибки
-
-| Код | Причина |
+| Поле | Можно менять в состояниях |
 |---|---|
-| `400 Bad Request` | Некорректные данные |
-| `401 Unauthorized` | Пользователь не авторизован |
-| `403 Forbidden` | Пользователь не является владельцем проекта |
-| `404 Not Found` | Проект не найден |
+| `title`, `description`, `externalContactUrl` | `DRAFT`, `RECRUITING`, `IN_PROGRESS` |
+| `type` | только `DRAFT` |
 
----
+Чтобы очистить `externalContactUrl`, передаётся пустая строка `""`.
+
+Ответ `200 OK` — проект, как в 7.2.
+
+| HTTP | Код | Причина |
+|---|---|---|
+| `403` | `FORBIDDEN` | Не владелец |
+| `409` | `PROJECT_NOT_EDITABLE` | Проект в `COMPLETED` / `CANCELLED`, либо `type` меняется не в `DRAFT` |
+
+### 7.5. Жизненный цикл проекта
+
+| Endpoint | Переход | Проверки | Побочные эффекты |
+|---|---|---|---|
+| `POST .../publish` | `DRAFT → RECRUITING` | есть хотя бы одна открытая роль | — |
+| `POST .../start` | `RECRUITING → IN_PROGRESS` | роли могут быть заполнены не полностью | все `PENDING`-заявки → `CLOSED` (`RECRUITMENT_CLOSED`), участникам уведомление `PROJECT_STARTED` |
+| `POST .../complete` | `IN_PROGRESS → COMPLETED` | — | участникам уведомление `PROJECT_COMPLETED` |
+| `POST .../cancel` | `DRAFT`, `RECRUITING`, `IN_PROGRESS → CANCELLED` | — | все `PENDING`-заявки → `CLOSED` (`PROJECT_CANCELLED`), уведомление `PROJECT_CANCELLED` |
+
+Ответ `200 OK`: `{ "id": 42, "state": "IN_PROGRESS" }`.
+
+Ошибки: `403 FORBIDDEN`, `404 NOT_FOUND`, `409 INVALID_STATE_TRANSITION`, `409 PROJECT_HAS_NO_ROLES`.
 
 ## 8. Project Roles
 
-Во внешнем API название конкретной роли проекта передаётся в поле `name`.
+Роль проекта — позиция в конкретном проекте: сколько мест, какие навыки. Тип роли — запись справочника (`Backend Developer`, `Designer`). Роль проекта всегда ссылается на тип: на этом работают фильтр каталога «Роль» и отметка «роль совпадает с интересующей» в matching.
 
-В текущей модели данных этому полю соответствует `ProjectRole.Title`. Для v1 фиксируется следующий DTO ↔ entity mapping:
+| Method | Endpoint | Назначение | Доступ |
+|---|---|---|---|
+| `POST` | `/api/projects/{projectId}/roles` | Добавить роль в существующий проект | Владелец |
+| `PATCH` | `/api/projects/{projectId}/roles/{roleId}` | Изменить роль | Владелец |
+| `POST` | `/api/projects/{projectId}/roles/{roleId}/close` | Закрыть набор на роль | Владелец |
+| `DELETE` | `/api/projects/{projectId}/roles/{roleId}` | Удалить роль без заявок | Владелец |
+| `GET` | `/api/projects/{projectId}/roles/{roleId}/match` | Matching текущего пользователя | Авторизованный |
 
-```text
-API: name ↔ Entity: ProjectRole.Title
-```
+### 8.1. `POST /api/projects/{projectId}/roles`
 
-Frontend работает с полем `name`; внутреннее имя свойства entity не изменяет внешний API-контракт.
+Тело — `RoleInput` из 7.3. Разрешено в `DRAFT` и `RECRUITING`, иначе `409 PROJECT_NOT_EDITABLE`. Ответ `201 Created` — роль, как элемент `roles` в 7.2.
 
-### 8.1. Создать роль проекта
+### 8.2. `PATCH /api/projects/{projectId}/roles/{roleId}`
 
-#### `POST /api/projects/{projectId}/roles`
+Передаются только изменяемые поля: `title`, `description`, `capacity`, `roleTypeId`, `requirements` (массив заменяет текущий).
 
-Создаёт роль, на которую проект ищет участников.
-
-**Доступ:** владелец проекта.
-
-#### Request
-
-| Поле | Тип | Обязательное | Описание |
-|---|---|:---:|---|
-| `roleTypeId` | integer | Да | Тип роли |
-| `name` | string | Да | Название роли |
-| `description` | string | Да | Описание роли |
-| `capacity` | integer | Да | Количество мест |
-| `requiredSkills` | array | Нет | Обязательные навыки |
-| `niceToHaveSkills` | array | Нет | Желательные навыки |
-
-```json
-{
-  "roleTypeId": 1,
-  "name": "Backend Developer",
-  "description": "Разработка backend на ASP.NET Core",
-  "capacity": 1,
-  "requiredSkills": [
-    {
-      "skillId": 1,
-      "level": "Intermediate"
-    }
-  ],
-  "niceToHaveSkills": [
-    {
-      "skillId": 3,
-      "level": "Beginner"
-    }
-  ]
-}
-```
-
-#### Response — `201 Created`
-
-```json
-{
-  "id": 15,
-  "projectId": 42,
-  "roleTypeId": 1,
-  "name": "Backend Developer",
-  "description": "Разработка backend на ASP.NET Core",
-  "capacity": 1
-}
-```
-
----
-
-### 8.2. Изменить роль проекта
-
-#### `PATCH /api/project-roles/{roleId}`
-
-Изменяет параметры существующей роли.
-
-**Доступ:** владелец проекта.
-
-После появления заявок ключевые требования роли блокируются от изменения. Описание роли может изменяться. `capacity` можно увеличивать, но нельзя уменьшать ниже количества уже принятых участников.
-
-#### Ошибки
-
-| Код | Причина |
+| Поле | Ограничение |
 |---|---|
-| `400 Bad Request` | Некорректные данные |
-| `401 Unauthorized` | Пользователь не авторизован |
-| `403 Forbidden` | Пользователь не является владельцем проекта |
-| `404 Not Found` | Роль не найдена |
-| `409 Conflict` | Изменение нарушает бизнес-правила роли |
+| `title`, `description` | всегда, пока проект не завершён и не отменён |
+| `capacity` | не меньше числа действующих участников роли (`CAPACITY_BELOW_OCCUPIED`) |
+| `roleTypeId`, `requirements` | только пока на роль не подано ни одной заявки (`ROLE_LOCKED`). Иначе кандидат подался на одни требования, а оценивать его будут по другим |
 
----
+Если после уменьшения `capacity` свободных мест не осталось, ожидающие заявки на роль закрываются с причиной `ROLE_FILLED`.
 
-## 9. Matching
+### 8.3. `POST /api/projects/{projectId}/roles/{roleId}/close`
 
-### 9.1. Получить matching для роли
+Закрывает набор на роль (кнопка «Закрыть роль» на S-06). Новые заявки на неё не принимаются, `PENDING`-заявки → `CLOSED` (`ROLE_CLOSED`). Действующие участники роли остаются. Ответ `200 OK` — роль.
 
-#### `GET /api/project-roles/{roleId}/match`
+### 8.4. `DELETE /api/projects/{projectId}/roles/{roleId}`
 
-Сравнивает навыки текущего пользователя с требованиями конкретной роли.
+Удаляет роль, только если на неё не подавали заявок и в ней нет участников. Иначе `409 ROLE_HAS_APPLICATIONS`: роль нужно закрыть (8.3), чтобы не потерять историю. Ответ `204 No Content`.
 
-**Доступ:** авторизованный пользователь.
+### 8.5. `GET /api/projects/{projectId}/roles/{roleId}/match`
 
-Matching является рекомендательным. В v1 не используется ML и не рассчитывается искусственный процент соответствия.
-
-#### Response — `200 OK`
+Сравнивает навыки текущего пользователя с требованиями роли. Результат рекомендательный и ни на что не влияет автоматически. Процент не считается.
 
 ```json
 {
+  "roleId": 15,
+  "profileHasSkills": true,
+  "roleTypeMatchesInterest": true,
   "required": [
-    {
-      "skill": "C#",
-      "requiredLevel": "Intermediate",
-      "userLevel": "Intermediate",
-      "matched": true
-    },
-    {
-      "skill": "PostgreSQL",
-      "requiredLevel": "Beginner",
-      "userLevel": "Intermediate",
-      "matched": true
-    }
+    { "skillId": 11, "skill": "Go", "minimumLevel": "INTERMEDIATE", "userLevel": "INTERMEDIATE", "status": "MATCHED" },
+    { "skillId": 3, "skill": "PostgreSQL", "minimumLevel": "BEGINNER", "userLevel": null, "status": "MISSING" }
   ],
   "niceToHave": [
-    {
-      "skill": "Docker",
-      "requiredLevel": "Beginner",
-      "userLevel": null,
-      "matched": false
-    }
+    { "skillId": 12, "skill": "Redis", "minimumLevel": null, "userLevel": "BEGINNER", "status": "MATCHED" }
   ],
-  "summary": {
-    "requiredMatched": 2,
-    "requiredTotal": 2,
-    "niceToHaveMatched": 0,
-    "niceToHaveTotal": 1
-  }
+  "summary": { "requiredMatched": 1, "requiredTotal": 2, "niceToHaveMatched": 1, "niceToHaveTotal": 1 }
 }
 ```
 
----
+`status`: `MATCHED` — навык есть и уровень не ниже минимального; `LEVEL_TOO_LOW` — навык есть, но уровень ниже; `MISSING` — навыка нет. Если у пользователя нет ни одного навыка, `profileHasSkills = false`, и интерфейс предлагает заполнить профиль.
+
+## 9. Связь сущностей в API
+
+```mermaid
+flowchart LR
+    P[Project] -->|1..*| R[ProjectRole]
+    RT[(RoleType<br/>справочник)] -->|тип| R
+    R -->|0..*| Q[RoleSkillRequirement]
+    S[(Skill<br/>справочник)] --> Q
+    U[User] -->|подаёт| A[Application]
+    A -->|на роль| R
+    A -.->|accept создаёт| M[Membership]
+    M -->|занимает место в| R
+```
 
 ## 10. Applications
 
+| Method | Endpoint | Назначение | Доступ |
+|---|---|---|---|
+| `POST` | `/api/projects/{projectId}/roles/{roleId}/applications` | Подать заявку на роль проекта | Авторизованный, не владелец |
+| `GET` | `/api/applications/mine` | Мои заявки | Авторизованный |
+| `POST` | `/api/applications/{applicationId}/withdraw` | Отозвать | Автор заявки |
+| `GET` | `/api/projects/{projectId}/applications` | Заявки проекта | Владелец |
+| `POST` | `/api/applications/{applicationId}/accept` | Принять | Владелец проекта |
+| `POST` | `/api/applications/{applicationId}/reject` | Отклонить | Владелец проекта |
+
+После создания заявка — самостоятельный ресурс со своим `id`, поэтому действия над ней адресуются как `/api/applications/{applicationId}/...`. Проект и роль backend берёт из самой заявки, клиенту их передавать не нужно.
+
 ### 10.1. Подать заявку
 
-#### `POST /api/project-roles/{roleId}/applications`
+`POST /api/projects/{projectId}/roles/{roleId}/applications`
 
-Создаёт заявку текущего пользователя на роль.
-
-**Доступ:** авторизованный пользователь.
-
-#### Request
-
-| Поле | Тип | Обязательное | Описание |
-|---|---|:---:|---|
-| `comment` | string | Нет | Комментарий кандидата |
+Заявка подаётся на конкретную роль конкретного проекта. Роль всегда принадлежит одному проекту, поэтому `{projectId, roleId}` однозначно указывает, куда человек откликается. Если `roleId` не из этого проекта, backend вернёт `404`.
 
 ```json
-{
-  "comment": "Хочу присоединиться к проекту и заниматься backend."
-}
+{ "message": "Есть опыт с Go и PostgreSQL, хочу заниматься backend." }
 ```
 
-Начальное состояние заявки — `PENDING`.
+| Поле | Тип | Обязательное | Ограничения |
+|---|---|:---:|---|
+| `message` | string \| null | нет | до 1000 символов |
 
-#### Response — `201 Created`
+Ответ `201 Created`
 
 ```json
 {
   "id": 101,
-  "projectRoleId": 15,
+  "projectId": 42,
+  "roleId": 15,
   "status": "PENDING",
-  "comment": "Хочу присоединиться к проекту и заниматься backend."
+  "closeReason": null,
+  "message": "Есть опыт с Go и PostgreSQL, хочу заниматься backend.",
+  "createdAt": "2026-10-20T12:00:00Z",
+  "decidedAt": null,
+  "membershipId": null
 }
 ```
 
-#### Бизнес-правила
+Проверки выполняются на сервере, отключённая кнопка в UI их не заменяет:
 
-- один пользователь может иметь только одну заявку на конкретную роль;
-- пользователь может подавать заявки на разные роли одного проекта;
-- повторная заявка на ту же роль после `REJECTED`, `WITHDRAWN` или `CLOSED` в v1 не создаётся;
-- создание заявки не занимает место в `capacity`;
-- отсутствие части required skills само по себе не запрещает подачу заявки.
+| Условие | Ошибка, если не выполнено |
+|---|---|
+| Проект в `RECRUITING` | `409 PROJECT_NOT_RECRUITING` |
+| Роль не закрыта | `409 ROLE_CLOSED` |
+| На роли есть свободное место | `409 ROLE_FULL` |
+| Заявитель не владелец проекта | `409 OWNER_CANNOT_APPLY` |
+| Заявитель никогда не состоял в команде этого проекта (в v1 вернуться после выхода или исключения нельзя, RULE-TEAM-05) | `409 ALREADY_MEMBER` |
+| На эту роль от пользователя ещё не было заявки (в любом статусе) | `409 DUPLICATE_APPLICATION` |
 
----
+На разные роли одного проекта подаваться можно. Подача заявки места не занимает. Отсутствие required-навыков подачу не запрещает. Владелец проекта получает уведомление `APPLICATION_RECEIVED`.
 
-### 10.2. Получить свои заявки
-
-#### `GET /api/applications/mine`
-
-Возвращает заявки текущего пользователя.
-
-**Доступ:** авторизованный пользователь.
-
-#### Response — `200 OK`
+### 10.2. `GET /api/applications/mine`
 
 ```json
 [
   {
     "id": 101,
-    "projectId": 42,
-    "projectTitle": "TeamFinder",
-    "projectRoleId": 15,
-    "roleName": "Backend Developer",
-    "status": "PENDING"
+    "project": { "id": 42, "title": "TeamFinder", "state": "RECRUITING" },
+    "role": { "id": 15, "title": "Backend Developer" },
+    "status": "PENDING",
+    "closeReason": null,
+    "message": "Есть опыт с Go и PostgreSQL",
+    "createdAt": "2026-10-20T12:00:00Z",
+    "decidedAt": null,
+    "canWithdraw": true
   }
 ]
 ```
 
----
+### 10.3. `POST /api/applications/{applicationId}/withdraw`
 
-### 10.3. Отозвать заявку
+Когда можно отозвать: только пока заявка в статусе `PENDING`, то есть до решения владельца.
 
-#### `POST /api/applications/{applicationId}/withdraw`
+- После `ACCEPTED` кандидат уже в команде. Отзывать нечего: он выходит из команды через `POST /api/projects/{projectId}/team/leave`.
+- `REJECTED` и `CLOSED` — уже конечные состояния.
+- Состояние проекта отдельно не проверяется: `PENDING`-заявка бывает только в `RECRUITING`, при переходе проекта дальше она закрывается автоматически.
 
-Позволяет кандидату отозвать свою заявку.
+Ответ `200 OK` — заявка (как в 10.1) со статусом `WITHDRAWN`.
 
-**Доступ:** автор заявки.
+| HTTP | Код | Причина |
+|---|---|---|
+| `403` | `FORBIDDEN` | Заявка чужая |
+| `409` | `APPLICATION_NOT_PENDING` | Заявка уже не в `PENDING` |
 
-#### Response — `200 OK`
+### 10.4. `GET /api/projects/{projectId}/applications`
 
-```json
-{
-  "id": 101,
-  "status": "WITHDRAWN"
-}
-```
-
-#### Ошибки
-
-| Код | Причина |
-|---|---|
-| `401 Unauthorized` | Пользователь не авторизован |
-| `403 Forbidden` | Заявка принадлежит другому пользователю |
-| `404 Not Found` | Заявка не найдена |
-| `409 Conflict` | Заявку нельзя отозвать в текущем состоянии |
-
----
-
-### 10.4. Получить заявки проекта
-
-#### `GET /api/projects/{projectId}/applications`
-
-Возвращает заявки на роли проекта.
-
-**Доступ:** владелец проекта.
-
-#### Response — `200 OK`
+Параметры: `status` и `roleId` — необязательные фильтры. Владелец видит кандидата и результат matching, чтобы сравнивать кандидатов по навыкам, а не по тексту сообщения.
 
 ```json
 [
   {
     "id": 101,
+    "roleId": 15,
+    "roleTitle": "Backend Developer",
     "status": "PENDING",
-    "role": {
-      "id": 15,
-      "name": "Backend Developer"
-    },
+    "closeReason": null,
+    "message": "Есть опыт с Go и PostgreSQL",
+    "createdAt": "2026-10-20T12:00:00Z",
+    "decidedAt": null,
     "candidate": {
       "id": 12,
-      "displayName": "Alex"
+      "displayName": "Пётр",
+      "bio": "Пишу на Go 2 года",
+      "githubUrl": "https://github.com/petr",
+      "skills": [ { "skillId": 11, "name": "Go", "level": "INTERMEDIATE" } ],
+      "interestedRoleTypes": [ { "id": 1, "name": "Backend Developer" } ]
     },
-    "comment": "Хочу заниматься backend."
+    "match": { "requiredMatched": 2, "requiredTotal": 2, "niceToHaveMatched": 1, "niceToHaveTotal": 2 }
   }
 ]
 ```
 
----
+### 10.5. `POST /api/applications/{applicationId}/accept`
 
-### 10.5. Принять заявку
+Всё делается в одной транзакции. В начале backend блокирует строку проекта (`SELECT ... FOR UPDATE`), и все операции над заявками и командой этого проекта идут по очереди. Если два запроса одновременно пытаются занять последнее место, первый его займёт, а второй получит `409`: его заявка к этому моменту уже закрыта (`ROLE_FILLED`) или мест нет.
 
-#### `POST /api/applications/{applicationId}/accept`
+1. Проверить: текущий пользователь — владелец, проект в `RECRUITING`, заявка в `PENDING`, роль не закрыта, есть свободное место, кандидат ещё не участник проекта.
+2. Заявка → `ACCEPTED`, `decidedAt = now`.
+3. Создать `Membership` (пользователь, проект, роль).
+4. Другие `PENDING`-заявки этого кандидата в этом проекте → `CLOSED` (`ACCEPTED_ANOTHER_ROLE`).
+5. Если роль заполнена, `PENDING`-заявки других кандидатов на эту роль → `CLOSED` (`ROLE_FILLED`).
+6. Уведомления: кандидату `APPLICATION_ACCEPTED`, авторам закрытых заявок `APPLICATION_CLOSED`.
 
-Принимает заявку кандидата.
+Ответ `200 OK` — заявка со статусом `ACCEPTED` и заполненным `membershipId`.
 
-**Доступ:** владелец проекта.
+| HTTP | Код | Причина |
+|---|---|---|
+| `403` | `FORBIDDEN` | Не владелец проекта |
+| `409` | `APPLICATION_NOT_PENDING` | Заявка уже обработана. Повторный запрос не создаёт второе участие |
+| `409` | `PROJECT_NOT_RECRUITING` | Набор закрыт |
+| `409` | `ROLE_FULL` | Мест нет |
+| `409` | `ALREADY_MEMBER` | Кандидат уже в команде |
 
-При успешном принятии:
+### 10.6. `POST /api/applications/{applicationId}/reject`
 
-1. `Application` получает состояние `ACCEPTED`;
-2. создаётся `Membership`;
-3. место в `capacity` считается занятым;
-4. другие `PENDING`-заявки этого пользователя в том же проекте переводятся в `CLOSED` с причиной `AcceptedAnotherRole`;
-5. если после принятия роль полностью заполнена, остальные `PENDING`-заявки других кандидатов на эту роль переводятся в `CLOSED` с причиной `RoleFilled`.
+Заявка `PENDING` → `REJECTED`. Кандидат получает уведомление `APPLICATION_REJECTED`. Ответ `200 OK` — заявка.
 
-Проверка свободного места выполняется непосредственно при принятии заявки. Проверка и создание `Membership` должны выполняться атомарно, чтобы параллельное принятие заявок не позволяло превысить `capacity`.
-
-#### Response — `200 OK`
-
-```json
-{
-  "applicationId": 101,
-  "status": "ACCEPTED",
-  "membershipId": 55
-}
-```
-
-#### Ошибки
-
-| Код | Причина |
-|---|---|
-| `401 Unauthorized` | Пользователь не авторизован |
-| `403 Forbidden` | Пользователь не является владельцем проекта |
-| `404 Not Found` | Заявка не найдена |
-| `409 Conflict` | Заявка обработана, роль заполнена или операция недоступна |
-
----
-
-### 10.6. Отклонить заявку
-
-#### `POST /api/applications/{applicationId}/reject`
-
-Отклоняет заявку кандидата.
-
-**Доступ:** владелец проекта.
-
-#### Response — `200 OK`
-
-```json
-{
-  "applicationId": 101,
-  "status": "REJECTED"
-}
-```
-
----
+Ошибки: `403 FORBIDDEN`, `404 NOT_FOUND`, `409 APPLICATION_NOT_PENDING`.
 
 ## 11. Team
 
-### 11.1. Получить команду проекта
+| Method | Endpoint | Назначение | Доступ |
+|---|---|---|---|
+| `GET` | `/api/projects/{projectId}/team` | Состав команды и контакт | Владелец или действующий участник |
+| `POST` | `/api/projects/{projectId}/team/leave` | Выйти из команды | Действующий участник |
+| `DELETE` | `/api/projects/{projectId}/members/{userId}` | Исключить участника | Владелец |
 
-#### `GET /api/projects/{projectId}/team`
-
-Возвращает владельца и участников проекта.
-
-**Доступ:** владелец проекта или участник команды.
-
-#### Response — `200 OK`
+### 11.1. `GET /api/projects/{projectId}/team`
 
 ```json
 {
-  "owner": {
-    "id": 7,
-    "displayName": "Evgen"
-  },
+  "project": { "id": 42, "title": "TeamFinder", "type": "STUDY_PROJECT", "state": "IN_PROGRESS" },
+  "owner": { "id": 7, "displayName": "Иван" },
+  "externalContactUrl": "https://t.me/teamfinder_dev",
   "members": [
-    {
-      "userId": 12,
-      "displayName": "Alex",
-      "roleId": 15,
-      "roleName": "Backend Developer"
-    }
+    { "membershipId": 55, "userId": 12, "displayName": "Пётр", "roleId": 15, "roleTitle": "Backend Developer", "joinedAt": "2026-10-21T09:00:00Z" }
   ]
 }
 ```
 
-Владелец хранится отдельно от `Membership` и автоматически не занимает место в `capacity` роли.
+Владелец не входит в `members` и место в роли не занимает.
 
----
+### 11.2. `POST /api/projects/{projectId}/team/leave`
 
-### 11.2. Покинуть команду
+Участие завершается: `endedAt = now`, `endReason = LEFT`. Запись не удаляется, это история. Место в роли освобождается. Владелец получает уведомление `MEMBER_LEFT`. Ответ `204`. Ошибки: `409 NOT_A_MEMBER`, `409 PROJECT_NOT_EDITABLE` (проект завершён или отменён).
 
-#### `POST /api/projects/{projectId}/team/leave`
+### 11.3. `DELETE /api/projects/{projectId}/members/{userId}`
 
-Текущий участник покидает команду проекта.
+Владелец исключает участника: `endedAt = now`, `endReason = REMOVED`. Участник получает уведомление `MEMBER_REMOVED`. Ответ `204`.
 
-**Доступ:** участник команды.
+Почему `projectId` и `userId` в URL, а не в теле запроса. Участник команды — это часть проекта, и `/api/projects/42/members/12` — его адрес. `DELETE` удаляет то, что лежит по адресу, а адрес целиком задаётся в URL. Тело у `DELETE` по стандарту (RFC 9110) ничего не значит: сервер может его проигнорировать, а прокси и некоторые клиенты, включая Swagger UI, вообще его не отправляют. Если перенести id в тело, запрос может дойти до сервера уже без них. Плюс по пути сразу видно, к какому проекту запрос, и проверить, владелец ли это, можно до чтения тела.
 
-#### Response — `204 No Content`
+Ошибки: `403 FORBIDDEN`, `404 NOT_FOUND` (нет действующего участия), `409 PROJECT_NOT_EDITABLE`.
 
----
+## 12. Notifications
 
-### 11.3. Удалить участника
+Уведомления создаются при каждом событии (новая заявка, решение, закрытие, выход, исключение, смена состояния проекта). В MVP их видно на сайте и они приходят в Telegram, если пользователь подключил бота. Почта и push — к v1.0 через тот же модуль (см. [`architecture-v1.md`](architecture-v1.md)).
 
-#### `DELETE /api/projects/{projectId}/members/{userId}`
-
-Владелец удаляет участника из команды.
-
-**Доступ:** владелец проекта.
-
-#### Response — `204 No Content`
-
-#### Ошибки
-
-| Код | Причина |
-|---|---|
-| `401 Unauthorized` | Пользователь не авторизован |
-| `403 Forbidden` | Пользователь не является владельцем проекта |
-| `404 Not Found` | Проект или участник не найден |
-| `409 Conflict` | Действие невозможно в текущем состоянии |
-
----
-
-## 12. Project Lifecycle
-
-### 12.1. Основной жизненный цикл
-
-```text
-DRAFT → RECRUITING → IN_PROGRESS → COMPLETED
-```
-
-Проект также может перейти в `CANCELLED`, если отмена разрешена из его текущего состояния.
-
-### 12.2. Открыть набор
-
-#### `POST /api/projects/{projectId}/recruiting`
-
-Переводит проект из `DRAFT` в `RECRUITING`.
-
-**Доступ:** владелец проекта.
-
-#### Response — `200 OK`
+| Method | Endpoint | Назначение |
+|---|---|---|
+| `GET` | `/api/notifications?unreadOnly=true` | Мои уведомления, новые сверху (до 50) |
+| `POST` | `/api/notifications/{notificationId}/read` | Отметить прочитанным, `204` |
+| `POST` | `/api/notifications/read-all` | Отметить все прочитанными, `204` |
 
 ```json
-{
-  "id": 42,
-  "state": "RECRUITING"
-}
+[
+  {
+    "id": 3,
+    "type": "APPLICATION_ACCEPTED",
+    "text": "Вас приняли в проект «TeamFinder» на роль Backend Developer",
+    "projectId": 42,
+    "createdAt": "2026-10-21T09:00:00Z",
+    "isRead": false
+  }
+]
 ```
 
-### 12.3. Начать проект
+Типы: `APPLICATION_RECEIVED`, `APPLICATION_ACCEPTED`, `APPLICATION_REJECTED`, `APPLICATION_CLOSED`, `MEMBER_LEFT`, `MEMBER_REMOVED`, `PROJECT_STARTED`, `PROJECT_COMPLETED`, `PROJECT_CANCELLED`.
 
-#### `POST /api/projects/{projectId}/start`
+### 12.1. Telegram
 
-Переводит проект из `RECRUITING` в `IN_PROGRESS`.
+| Method | Endpoint | Назначение |
+|---|---|---|
+| `GET` | `/api/profile/telegram` | Подключён ли Telegram |
+| `POST` | `/api/profile/telegram/link` | Получить одноразовую ссылку на бота |
+| `DELETE` | `/api/profile/telegram` | Отключить Telegram |
 
-**Доступ:** владелец проекта.
+Как подключается:
 
-Владелец может начать проект до заполнения всех ролей. При переходе в `IN_PROGRESS` оставшиеся `PENDING`-заявки переводятся в `CLOSED` с причиной `RecruitmentClosed`.
-
-#### Response — `200 OK`
+1. В профиле пользователь нажимает «Подключить Telegram», frontend вызывает `POST /api/profile/telegram/link`.
+2. Backend создаёт одноразовый код на 10 минут и возвращает ссылку:
 
 ```json
-{
-  "id": 42,
-  "state": "IN_PROGRESS"
-}
+{ "code": "q3Jx9vT2cKpL0aZw", "url": "https://t.me/teamfinder_demo_bot?start=q3Jx9vT2cKpL0aZw", "expiresAt": "2026-10-29T12:10:00Z" }
 ```
 
-### 12.4. Завершить проект
+3. Пользователь открывает ссылку и нажимает Start. Бот получает сообщение `/start q3Jx9vT2cKpL0aZw`, backend находит по коду пользователя и запоминает `chat_id`.
+4. С этого момента новые уведомления этого пользователя уходят и в Telegram. Команда `/stop` в чате с ботом отключает их.
 
-#### `POST /api/projects/{projectId}/complete`
-
-Переводит проект из `IN_PROGRESS` в `COMPLETED`.
-
-**Доступ:** владелец проекта.
-
-#### Response — `200 OK`
+`GET /api/profile/telegram`:
 
 ```json
-{
-  "id": 42,
-  "state": "COMPLETED"
-}
+{ "enabled": true, "linked": true, "botUsername": "teamfinder_demo_bot", "linkedAt": "2026-10-29T12:03:00Z" }
 ```
 
-### 12.5. Отменить проект
+`enabled = false` значит, что бот не настроен на сервере (нет `Telegram:BotToken`). Тогда `POST .../link` отвечает `409 TELEGRAM_DISABLED`, а уведомления видны только на сайте.
 
-#### `POST /api/projects/{projectId}/cancel`
+`DELETE /api/profile/telegram` — тела нет, отключается Telegram текущего пользователя. Ответ `204`.
 
-Переводит проект в `CANCELLED`, если переход разрешён.
+## 13. Состояния и переходы
 
-**Доступ:** владелец проекта.
+### 13.1. Заявка (`Application.status`)
 
-Активные `PENDING`-заявки переводятся в `CLOSED` с причиной `ProjectCancelled`.
-
-#### Response — `200 OK`
-
-```json
-{
-  "id": 42,
-  "state": "CANCELLED"
-}
+```mermaid
+stateDiagram-v2
+    [*] --> PENDING : кандидат подаёт заявку
+    PENDING --> ACCEPTED : владелец принимает
+    PENDING --> REJECTED : владелец отклоняет
+    PENDING --> WITHDRAWN : кандидат отзывает
+    PENDING --> CLOSED : система закрывает
+    ACCEPTED --> [*]
+    REJECTED --> [*]
+    WITHDRAWN --> [*]
+    CLOSED --> [*]
 ```
 
-#### Общие ошибки lifecycle-операций
+| Из | Действие | Кто | В | Условия |
+|---|---|---|---|---|
+| — | `POST .../applications` | Кандидат | `PENDING` | 10.1 |
+| `PENDING` | `accept` | Владелец | `ACCEPTED` | проект `RECRUITING`, есть место, кандидат не участник |
+| `PENDING` | `reject` | Владелец | `REJECTED` | — |
+| `PENDING` | `withdraw` | Автор заявки | `WITHDRAWN` | — |
+| `PENDING` | принят на другую роль проекта | Система | `CLOSED` (`ACCEPTED_ANOTHER_ROLE`) | — |
+| `PENDING` | роль заполнилась | Система | `CLOSED` (`ROLE_FILLED`) | — |
+| `PENDING` | владелец закрыл роль | Система | `CLOSED` (`ROLE_CLOSED`) | — |
+| `PENDING` | проект переведён в работу | Система | `CLOSED` (`RECRUITMENT_CLOSED`) | — |
+| `PENDING` | проект отменён | Система | `CLOSED` (`PROJECT_CANCELLED`) | — |
+| `ACCEPTED`, `REJECTED`, `WITHDRAWN`, `CLOSED` | любое действие | — | без изменений | `409 APPLICATION_NOT_PENDING` |
 
-| Код | Причина |
+Конечные состояния не возвращаются в `PENDING`. Повторная заявка на ту же роль в v1 запрещена (`DUPLICATE_APPLICATION`).
+
+### 13.2. Проект (`Project.state`)
+
+```mermaid
+stateDiagram-v2
+    [*] --> DRAFT : POST /api/projects
+    DRAFT --> RECRUITING : publish (есть роль)
+    RECRUITING --> IN_PROGRESS : start
+    IN_PROGRESS --> COMPLETED : complete
+    DRAFT --> CANCELLED : cancel
+    RECRUITING --> CANCELLED : cancel
+    IN_PROGRESS --> CANCELLED : cancel
+    COMPLETED --> [*]
+    CANCELLED --> [*]
+```
+
+### 13.3. Участие (`Membership`)
+
+```mermaid
+stateDiagram-v2
+    [*] --> ACTIVE : заявка принята
+    ACTIVE --> LEFT : участник вышел (team/leave)
+    ACTIVE --> REMOVED : владелец исключил (DELETE members)
+    LEFT --> [*]
+    REMOVED --> [*]
+```
+
+Запись участия не удаляется: `endedAt` и `endReason` сохраняют историю. Место занимают только активные участия (`endedAt IS NULL`).
+
+### 13.4. Перечисления
+
+| Тип | Значения |
 |---|---|
-| `401 Unauthorized` | Пользователь не авторизован |
-| `403 Forbidden` | Пользователь не является владельцем проекта |
-| `404 Not Found` | Проект не найден |
-| `409 Conflict` | Переход из текущего состояния недопустим |
+| `ProjectType` | `PET_PROJECT`, `HACKATHON`, `STUDY_PROJECT` |
+| `ProjectState` | `DRAFT`, `RECRUITING`, `IN_PROGRESS`, `COMPLETED`, `CANCELLED` |
+| `ApplicationStatus` | `PENDING`, `ACCEPTED`, `REJECTED`, `WITHDRAWN`, `CLOSED` |
+| `ApplicationCloseReason` | `ACCEPTED_ANOTHER_ROLE`, `ROLE_FILLED`, `ROLE_CLOSED`, `RECRUITMENT_CLOSED`, `PROJECT_CANCELLED` |
+| `SkillLevel` | `BEGINNER`, `INTERMEDIATE`, `ADVANCED` |
+| `RequirementType` | `REQUIRED`, `NICE_TO_HAVE` |
+| `MembershipEndReason` | `LEFT`, `REMOVED` |
 
----
+## 14. Коды ошибок
 
-## 13. Состояния системы
+| Код | HTTP | Когда |
+|---|---|---|
+| `VALIDATION_ERROR` | 400 | Поля запроса не прошли валидацию |
+| `DUPLICATE_SKILL` | 400 | Навык повторяется в профиле или в роли |
+| `UNKNOWN_SKILL` | 400 | Нет навыка в справочнике |
+| `UNKNOWN_ROLE_TYPE` | 400 | Нет типа роли в справочнике |
+| `UNAUTHORIZED` | 401 | Нет или истёк access token |
+| `INVALID_CREDENTIALS` | 401 | Неверный email или пароль |
+| `INVALID_REFRESH_TOKEN` | 401 | Refresh token отсутствует, истёк или отозван |
+| `FORBIDDEN` | 403 | Нет прав на действие |
+| `NOT_FOUND` | 404 | Ресурс не найден |
+| `EMAIL_TAKEN` | 409 | Email уже занят |
+| `PROJECT_NOT_EDITABLE` | 409 | Проект в конечном состоянии, или поле нельзя менять в текущем |
+| `INVALID_STATE_TRANSITION` | 409 | Недопустимый переход проекта |
+| `PROJECT_HAS_NO_ROLES` | 409 | Публикация без ролей |
+| `PROJECT_NOT_RECRUITING` | 409 | Подача или принятие вне набора |
+| `ROLE_FULL` | 409 | Нет свободных мест |
+| `ROLE_CLOSED` | 409 | Набор на роль закрыт |
+| `ROLE_LOCKED` | 409 | Тип и навыки роли нельзя менять после первой заявки |
+| `CAPACITY_BELOW_OCCUPIED` | 409 | Мест меньше, чем участников |
+| `ROLE_HAS_APPLICATIONS` | 409 | Роль с заявками нельзя удалить, только закрыть |
+| `DUPLICATE_APPLICATION` | 409 | Заявка на эту роль уже была |
+| `ALREADY_MEMBER` | 409 | Пользователь уже в команде проекта |
+| `OWNER_CANNOT_APPLY` | 409 | Владелец подаёт заявку в свой проект |
+| `APPLICATION_NOT_PENDING` | 409 | Действие над уже обработанной заявкой |
+| `NOT_A_MEMBER` | 409 | Выход из команды, в которой пользователь не состоит |
+| `TELEGRAM_DISABLED` | 409 | Telegram-бот не настроен на сервере |
+| `TOO_MANY_ATTEMPTS` | 429 | Слишком много попыток входа за минуту |
+| `CONFLICT` | 409 | Запись уже существует: редкая гонка, которую поймало ограничение уникальности БД. Нужно обновить данные и повторить |
+| `INTERNAL_ERROR` | 500 | Непредвиденная ошибка сервера; детали пишутся в лог, клиенту не показываются |
 
-### 13.1. Project State
+## 15. Что не входит в контракт v1
 
-| State | Значение |
+| Возможность | Когда |
 |---|---|
-| `DRAFT` | Проект создаётся и настраивается |
-| `RECRUITING` | Открыт набор участников |
-| `IN_PROGRESS` | Проект выполняется |
-| `COMPLETED` | Проект завершён |
-| `CANCELLED` | Проект отменён |
-
-### 13.2. Application Status
-
-| Status | Значение |
-|---|---|
-| `PENDING` | Заявка ожидает решения |
-| `ACCEPTED` | Кандидат принят |
-| `REJECTED` | Заявка отклонена |
-| `WITHDRAWN` | Кандидат отозвал заявку |
-| `CLOSED` | Заявка автоматически закрыта |
-
-Для заявки со статусом `CLOSED` используется поле `closeReason`.
-
-| `closeReason` | Причина |
-|---|---|
-| `AcceptedAnotherRole` | Пользователь принят на другую роль этого проекта |
-| `RoleFilled` | Все места выбранной роли заняты |
-| `RecruitmentClosed` | Набор в проект завершён |
-| `ProjectCancelled` | Проект отменён |
-
-### 13.3. Skill Level
-
-| Level | Значение |
-|---|---|
-| `Beginner` | Начальный |
-| `Intermediate` | Средний |
-| `Advanced` | Продвинутый |
-
-Для TeamFinder v1 используется единая трёхуровневая шкала навыков: `Beginner`, `Intermediate`, `Advanced`.
-
-Значение `Expert` в API Contracts v1 не используется. Backend-модель должна быть синхронизирована с этой шкалой перед реализацией API профиля и matching.
-
----
-
-## 14. Ключевые бизнес-правила
-
-| № | Правило |
-|---:|---|
-| 1 | `Application` и `Membership` являются разными сущностями |
-| 2 | Подача заявки не занимает место в роли |
-| 3 | Место в `capacity` занимает только принятый участник (`Membership`) |
-| 4 | При принятии заявки backend повторно проверяет наличие свободного места; проверка и создание `Membership` выполняются атомарно |
-| 5 | Один пользователь не может создать несколько заявок на одну роль |
-| 6 | Пользователь может подаваться на разные роли одного проекта |
-| 7 | После принятия пользователя на одну роль остальные его `PENDING`-заявки в этом проекте закрываются с причиной `AcceptedAnotherRole` |
-| 8 | Когда роль полностью заполнена, остальные `PENDING`-заявки на эту роль закрываются с причиной `RoleFilled` |
-| 9 | В v1 повторная заявка на ту же роль после `REJECTED`, `WITHDRAWN` или `CLOSED` не создаётся |
-| 10 | После появления заявок ключевые требования роли блокируются от изменения |
-| 11 | `capacity` нельзя уменьшить ниже количества уже принятых участников |
-| 12 | Владелец проекта хранится отдельно и автоматически не занимает место в роли |
-| 13 | Владелец может начать проект до заполнения всех ролей |
-| 14 | При завершении набора оставшиеся `PENDING`-заявки закрываются с причиной `RecruitmentClosed` |
-| 15 | При отмене проекта активные `PENDING`-заявки закрываются с причиной `ProjectCancelled` |
-| 16 | Matching является рекомендательным и объяснимым |
-| 17 | Matching v1 не использует ML и не рассчитывает процент соответствия |
-| 18 | Для коммуникации участников используются внешние контактные данные; встроенный чат не входит в v1 |
-
----
-
-## 15. Границы API Contracts v1
-
-| Возможность | Статус |
-|---|---|
-| Встроенный чат | Future |
-| Telegram-автоматизация | Future |
-| Система рейтинга и репутации | Future |
-| Анализ токсичности / sentiment analysis | Future |
-| ML-рекомендации | Future |
-| Сложный процентный matching | Future |
-| Автоматические skill tests | Future |
-| Внутренние tasks / milestones | Future |
-| Расширенная система уведомлений | Future |
-
----
-
-## 16. Примечание по согласованию
-
-После review для API Contracts v1 зафиксированы следующие решения:
-
-- каноническая шкала навыков v1 — `Beginner`, `Intermediate`, `Advanced`; backend должен быть синхронизирован и не использовать `Expert` в v1;
-- `Project.type` остаётся частью scope v1 и внешнего API; ERD/backend-модель должны содержать соответствующее поле или справочник;
-- поле API `ProjectRole.name` соответствует `ProjectRole.Title` в текущей entity-модели;
-- автоматическое закрытие `Application` сопровождается `closeReason`: `AcceptedAnotherRole`, `RoleFilled`, `RecruitmentClosed` или `ProjectCancelled`;
-- конкретный механизм аутентификации должен быть выбран отдельным техническим решением до реализации Auth и интеграции frontend/backend.
-
-При дальнейших расхождениях между API Contracts v1, ERD v1, Use Cases v1, UI Design v1 и backend-моделью изменения синхронизируются отдельным commit / Pull Request до реализации зависимого функционала.
+| Email и push-уведомления, настройки «какие события присылать» | v1.0 (защита), через модуль Notifications |
+| Встроенный чат | Не планируется: связь через внешний контакт |
+| ML-рекомендации, процент соответствия | После v1 |
+| Повторное открытие набора, передача владения | После v1 |
+| Восстановление и смена пароля, смена email | Не в MVP. Можно сделать вместе с почтовыми уведомлениями в v1.0 |
